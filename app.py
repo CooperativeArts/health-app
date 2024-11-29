@@ -14,14 +14,7 @@ def hello():
 
 @app.route('/test')
 def test():
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": "Say hello!"}]
-        )
-        return f"OpenAI is working! Response: {response.choices[0].message.content}"
-    except Exception as e:
-        return f"Error: {str(e)}"
+    return "Basic test route!"  # Added exclamation mark
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
