@@ -13,11 +13,7 @@ def hello():
 
 @app.route('/test')
 def test():
-    try:
-        llm = ChatOpenAI()
-        return "OpenAI setup working!"
-    except Exception as e:
-        return f"Error: {str(e)}"
+    return "Basic test route"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
