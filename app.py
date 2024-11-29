@@ -1,13 +1,12 @@
 from flask import Flask
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import HumanMessage
+from langchain.llms import OpenAI
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
-llm = ChatOpenAI(temperature=0)
+llm = OpenAI()
 
 @app.route('/')
 def hello():
@@ -17,7 +16,7 @@ def hello():
 def test():
     try:
         response = llm.predict("Say hello!")
-        return f"OpenAI through LangChain is working! Response: {response}"
+        return f"LangChain is working! Response: {response}"
     except Exception as e:
         return f"Error: {str(e)}"
 
