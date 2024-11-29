@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-llm = ChatOpenAI()
 
 @app.route('/')
 def hello():
@@ -15,8 +14,8 @@ def hello():
 @app.route('/test')
 def test():
     try:
-        response = llm.predict("Say hello!")
-        return f"OpenAI is working! Response: {response}"
+        llm = ChatOpenAI()  # Move this inside the function
+        return "OpenAI setup working!"
     except Exception as e:
         return f"Error: {str(e)}"
 
