@@ -1,9 +1,4 @@
 from flask import Flask
-from langchain.chat_models import ChatOpenAI
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = Flask(__name__)
 
