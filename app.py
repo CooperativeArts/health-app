@@ -14,7 +14,7 @@ def hello():
 @app.route('/test')
 def test():
     try:
-        llm = ChatOpenAI()  # Move this inside the function
+        llm = ChatOpenAI()
         return "OpenAI setup working!"
     except Exception as e:
         return f"Error: {str(e)}"
