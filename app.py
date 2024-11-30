@@ -15,8 +15,8 @@ def hello():
 @app.route('/test')
 def test():
     try:
-        response = llm.predict("Say hello!")
-        return f"LangChain is working! Response: {response}"
+        response = llm.predict("Say hello and mention LangChain!")
+        return f"LangChain test: {response}"
     except Exception as e:
         return f"Error: {str(e)}"
 
