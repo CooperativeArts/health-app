@@ -7,10 +7,12 @@ from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
 import os
 from dotenv import load_dotenv
+from functools import lru_cache
 
 load_dotenv()
 
 app = Flask(__name__)
+processed_db = None
 llm = ChatOpenAI()
 
 HTML_TEMPLATE = '''
@@ -72,50 +74,43 @@ HTML_TEMPLATE = '''
 def home():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route('/query')
-def query():
-    try:
-        user_query = request.args.get('q', 'What is this about?')
+@lru_cache(maxsize=1)
+def get_qa_chain():
+    global processed_db
+    if processed_db is None:
         documents = []
-        
         files = os.listdir('docs')
-        print(f"Found files: {files}")
         
         for file in files:
             try:
                 filepath = os.path.join('docs', file)
                 if file.endswith('.txt'):
-                    print(f"Loading text file: {file}")
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        text = f.read()
-                        if text.strip():  # Check if file has content
-                            documents.extend(TextLoader(filepath).load())
+                    documents.extend(TextLoader(filepath).load())
                 elif file.endswith('.pdf'):
-                    print(f"Loading PDF file: {file}")
                     documents.extend(PyPDFLoader(filepath).load())
             except Exception as e:
                 print(f"Error loading file {file}: {str(e)}")
                 continue
-        
-        if not documents:
-            return "No documents were loaded. Please check the docs folder."
-            
-        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+        text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)  # Smaller chunks
         texts = text_splitter.split_documents(documents)
-        print(f"Split into {len(texts)} text chunks")
-        
         embeddings = OpenAIEmbeddings()
-        db = FAISS.from_documents(texts, embeddings)
-        qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=db.as_retriever())
+        processed_db = FAISS.from_documents(texts, embeddings)
         
-        print(f"Processing query: {user_query}")
+    qa = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=processed_db.as_retriever(search_kwargs={"k": 2})
+    )
+    return qa
+
+@app.route('/query')
+def query():
+    try:
+        user_query = request.args.get('q', 'What is this about?')
+        qa = get_qa_chain()
         response = qa.run(user_query)
-        print(f"Got response: {response}")
-        
-        if not response:
-            return "No answer found. Please try rephrasing your question."
-            
-        return response
+        return response if response else "No answer found. Please try rephrasing your question."
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         return f"Error: {str(e)}"
