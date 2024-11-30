@@ -1,5 +1,6 @@
 from flask import Flask
 from langchain.chat_models import ChatOpenAI
+from langchain.document_loaders import DirectoryLoader
 import os
 from dotenv import load_dotenv
 
@@ -15,8 +16,11 @@ def hello():
 @app.route('/test')
 def test():
     try:
-        response = llm.predict("Say hello and mention LangChain!")
-        return f"LangChain test: {response}"
+        # Test both LangChain and document loading
+        loader = DirectoryLoader("docs", glob="**/*.txt")
+        docs = loader.load()
+        response = llm.predict("Say hello and tell me how many documents were loaded!")
+        return f"LangChain loaded {len(docs)} documents. AI says: {response}"
     except Exception as e:
         return f"Error: {str(e)}"
 
