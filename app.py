@@ -11,15 +11,14 @@ llm = ChatOpenAI()
 
 @app.route('/')
 def hello():
-    return 'Hello, World!'
+    return f"Current directory: {os.getcwd()}"
 
 @app.route('/test')
 def test():
     try:
-        loader = DirectoryLoader("docs", glob="**/*.txt")
-        docs = loader.load()
-        response = llm.predict(f"Say hello and tell me you found {len(docs)} documents!")
-        return f"LangChain test: {response}"
+        current_dir = os.getcwd()
+        files = os.listdir('docs')
+        return f"Directory: {current_dir}, Files in docs: {files}"
     except Exception as e:
         return f"Error: {str(e)}"
 
