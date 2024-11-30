@@ -4,6 +4,7 @@ from langchain.document_loaders import TextLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
+from langchain.chains import RetrievalQA
 import os
 from dotenv import load_dotenv
 
@@ -15,25 +16,28 @@ llm = ChatOpenAI()
 @app.route('/test')
 def test():
     try:
-        # Load document
+        # Load and process document
         loader = TextLoader('docs/test.txt')
         documents = loader.load()
         
-        # Split text
         text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         texts = text_splitter.split_documents(documents)
         
-        # Create embeddings
         embeddings = OpenAIEmbeddings()
-        
-        # Create vector store
         db = FAISS.from_documents(texts, embeddings)
         
-        # Test query
-        query = "What's in the document?"
-        docs = db.similarity_search(query)
+        # Create QA chain
+        qa = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=db.as_retriever()
+        )
         
-        return f"Document processed! First chunk: {docs[0].page_content}"
+        # Ask a question
+        query = "What is this document about?"
+        result = qa.run(query)
+        
+        return f"Question: {query}\nAnswer: {result}"
     except Exception as e:
         return f"Error: {str(e)}"
 
