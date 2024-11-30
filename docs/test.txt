@@ -1,1 +1,1 @@
-This is a test document for our RAG system. It contains some sample text that we can query later.
+This document explains our company's 2023 sustainability initiatives. We focused on three main areas: reducing carbon emissions, implementing recycling programs, and supporting local environmental projects. Our carbon emissions decreased by 15% through solar panel installations and energy-efficient lighting. The recycling program resulted in 50% less waste going to landfills. We also partnered with five local conservation groups to restore natural habitats.
