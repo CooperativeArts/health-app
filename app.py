@@ -1,5 +1,5 @@
 from flask import Flask, request, render_template_string
-from langchain.document_loaders import DirectoryLoader
+from langchain.document_loaders import TextLoader, PyPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
@@ -59,8 +59,13 @@ def home():
 def query():
    try:
        user_query = request.args.get('q', 'What is this about?')
-       loader = DirectoryLoader('docs', glob="**/*.[tp][xd][tf]")
-       documents = loader.load()
+       documents = []
+       for file in os.listdir('docs'):
+           if file.endswith('.txt'):
+               documents.extend(TextLoader(f'docs/{file}').load())
+           elif file.endswith('.pdf'):
+               documents.extend(PyPDFLoader(f'docs/{file}').load())
+               
        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
        texts = text_splitter.split_documents(documents)
        embeddings = OpenAIEmbeddings()
