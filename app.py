@@ -1,6 +1,6 @@
 from flask import Flask
 from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import DirectoryLoader
+from langchain.document_loaders import TextLoader
 import os
 from dotenv import load_dotenv
 
@@ -11,14 +11,15 @@ llm = ChatOpenAI()
 
 @app.route('/')
 def hello():
-    return f"Current directory: {os.getcwd()}"
+    return 'Hello, World!'
 
 @app.route('/test')
 def test():
     try:
-        current_dir = os.getcwd()
-        files = os.listdir('docs')
-        return f"Directory: {current_dir}, Files in docs: {files}"
+        loader = TextLoader("docs/test.txt")
+        docs = loader.load()
+        content = docs[0].page_content if docs else "No content found"
+        return f"Document content: {content}"
     except Exception as e:
         return f"Error: {str(e)}"
 
