@@ -1,13 +1,22 @@
 from flask import Flask
 from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import DirectoryLoader
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.chains import RetrievalQA
 
 app = Flask(__name__)
 llm = ChatOpenAI()
+
+# Load and process documents
+loader = DirectoryLoader("docs", glob="**/*.txt")
+documents = loader.load()
+text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+texts = text_splitter.split_documents(documents)
+embeddings = OpenAIEmbeddings()
+db = FAISS.from_documents(texts, embeddings)
+qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=db.as_retriever())
 
 @app.route('/')
 def hello():
@@ -16,11 +25,9 @@ def hello():
 @app.route('/test')
 def test():
     try:
-        # Test both LangChain and document loading
-        loader = DirectoryLoader("docs", glob="**/*.txt")
-        docs = loader.load()
-        response = llm.predict("Say hello and tell me how many documents were loaded!")
-        return f"LangChain loaded {len(docs)} documents. AI says: {response}"
+        query = "What's in the document?"
+        result = qa.run(query)
+        return f"RAG Response: {result}"
     except Exception as e:
         return f"Error: {str(e)}"
 
