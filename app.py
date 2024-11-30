@@ -59,7 +59,7 @@ def home():
 def query():
    try:
        user_query = request.args.get('q', 'What is this about?')
-       loader = DirectoryLoader('docs', glob="**/*.[tp][xd][tf]")  # matches txt, pdf, doc, docx, html
+       loader = DirectoryLoader('docs', glob="**/*.[tp][xd][tf]")
        documents = loader.load()
        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
        texts = text_splitter.split_documents(documents)
