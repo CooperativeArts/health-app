@@ -70,7 +70,7 @@ HTML_TEMPLATE = '''
 
 @app.route('/')
 def home():
-   return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML_TEMPLATE)
 
 @app.route('/query')
 def query():
@@ -79,40 +79,4 @@ def query():
         documents = []
         
         # Log what files we find
-        files = os.listdir('docs')
-        print(f"Found files: {files}")
-        
-        for file in files:
-            try:
-                if file.endswith('.txt'):
-                    print(f"Loading text file: {file}")
-                    documents.extend(TextLoader(f'docs/{file}').load())
-                elif file.endswith('.pdf'):
-                    print(f"Loading PDF file: {file}")
-                    documents.extend(PyPDFLoader(f'docs/{file}').load())
-        
-        if not documents:
-            return "No documents were loaded. Please check the docs folder."
-            
-        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        texts = text_splitter.split_documents(documents)
-        print(f"Split into {len(texts)} text chunks")
-        
-        embeddings = OpenAIEmbeddings()
-        db = FAISS.from_documents(texts, embeddings)
-        qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=db.as_retriever())
-        
-        print(f"Processing query: {user_query}")
-        response = qa.run(user_query)
-        print(f"Got response: {response}")
-        
-        if not response:
-            return "No answer found. Please try rephrasing your question."
-            
-        return response
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        return f"Error: {str(e)}"
-
-if __name__ == '__main__':
-   app.run(host='0.0.0.0', port=8000)
+        files = os.listdir('docs
