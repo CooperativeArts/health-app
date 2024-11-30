@@ -7,19 +7,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-llm = ChatOpenAI()
-
-@app.route('/')
-def hello():
-    return 'Hello, World!'
 
 @app.route('/test')
 def test():
     try:
-        loader = TextLoader("docs/test.txt")
-        docs = loader.load()
-        content = docs[0].page_content if docs else "No content found"
-        return f"Document content: {content}"
+        with open('docs/test.txt', 'r') as file:
+            content = file.read()
+        return f"File contents: {content}"
     except Exception as e:
         return f"Error: {str(e)}"
 
