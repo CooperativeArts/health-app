@@ -1,12 +1,12 @@
 from flask import Flask
-import openai
+from langchain.chat_models import ChatOpenAI
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
-openai.api_key = os.getenv('OPENAI_API_KEY')
+llm = ChatOpenAI()
 
 @app.route('/')
 def hello():
@@ -15,11 +15,8 @@ def hello():
 @app.route('/test')
 def test():
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": "Say hello!"}]
-        )
-        return f"OpenAI is working! Response: {response.choices[0].message.content}"
+        response = llm.predict("Say hello!")
+        return f"LangChain is working! Response: {response}"
     except Exception as e:
         return f"Error: {str(e)}"
 
