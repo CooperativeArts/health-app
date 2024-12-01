@@ -61,17 +61,17 @@ def home():
 @app.route('/query')
 def query():
     try:
+        from pypdf import PdfReader
         files = os.listdir('docs')
-        total_content = ""
         
-        # Just looking at first file to test
-        first_file = files[0]
-        file_path = os.path.join('docs', first_file)
-        with open(file_path, 'r', errors='ignore') as f:
-            content = f.read()
-            total_content += f"Content from {first_file}: {content[:1000]}\n\n"
-        
-        return total_content
+        # Try the first PDF file
+        for file in files:
+            if file.endswith('.pdf'):
+                reader = PdfReader(f'docs/{file}')
+                text = reader.pages[0].extract_text()
+                return f"Content from {file}:\n{text[:1000]}"
+                
+        return "No PDF files found"
     except Exception as e:
         return f"Error: {str(e)}"
 
