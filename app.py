@@ -67,25 +67,24 @@ HTML_TEMPLATE = '''
 @app.route('/')
 def home():
     return render_template_string(HTML_TEMPLATE)
-
 @app.route('/query')
 def query():
     try:
         files = os.listdir('docs')
-        content_preview = {}
+        all_text = ""
         
         for file in files:
-            try:
-                if file.endswith('.txt'):
-                    with open(f'docs/{file}', 'r') as f:
-                        content = f.read()
-                        content_preview[file] = content[:200]  # First 200 chars of each file
-                elif file.endswith('.pdf'):
-                    content_preview[file] = "PDF file found"
-            except Exception as e:
-                content_preview[file] = f"Error reading file: {str(e)}"
-                
-        return f"Files and their content: {content_preview}"
+            if file.endswith('.pdf'):
+                try:
+                    loader = PyPDFLoader(f'docs/{file}')
+                    pages = loader.load()
+                    for page in pages:
+                        all_text += page.page_content + "\n\n"
+                except Exception as e:
+                    all_text += f"Error reading {file}: {str(e)}\n"
+                    
+        # Return first 1000 characters to verify content
+        return f"Content from PDFs:\n\n{all_text[:1000]}"
     except Exception as e:
         return f"Error: {str(e)}"
 
