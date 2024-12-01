@@ -74,22 +74,44 @@ def query():
         user_query = request.args.get('q', 'What is this about?')
         documents = []
         
-        for file in os.listdir('docs'):
-            if file.endswith('.txt'):
-                documents.extend(TextLoader(f'docs/{file}').load())
-            elif file.endswith('.pdf'):
-                documents.extend(PyPDFLoader(f'docs/{file}').load())
+        print("Checking docs folder...")
+        files = os.listdir('docs')
+        print(f"Found files: {files}")
+        
+        for file in files:
+            try:
+                if file.endswith('.txt'):
+                    print(f"Loading text file: {file}")
+                    with open(f'docs/{file}', 'r') as f:
+                        content = f.read()
+                        print(f"Content preview: {content[:100]}")  # Show first 100 chars
+                    documents.extend(TextLoader(f'docs/{file}').load())
+                elif file.endswith('.pdf'):
+                    print(f"Loading PDF file: {file}")
+                    documents.extend(PyPDFLoader(f'docs/{file}').load())
+            except Exception as file_error:
+                print(f"Error with file {file}: {str(file_error)}")
+        
+        if not documents:
+            return "No documents were successfully loaded. Please check the docs folder."
+
+        print(f"Number of documents loaded: {len(documents)}")
         
         text_splitter = CharacterTextSplitter(chunk_size=200, chunk_overlap=20)
         texts = text_splitter.split_documents(documents)
+        print(f"Split into {len(texts)} chunks")
         
         embeddings = OpenAIEmbeddings()
         db = FAISS.from_documents(texts, embeddings)
         qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=db.as_retriever())
         
+        print(f"Processing query: {user_query}")
         response = qa.run(user_query)
+        print(f"Got response: {response}")
+        
         return response if response else "No answer found. Please try rephrasing your question."
     except Exception as e:
+        print(f"Main error: {str(e)}")
         return f"Error: {str(e)}"
 
 if __name__ == '__main__':
