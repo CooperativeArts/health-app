@@ -1,6 +1,5 @@
 from flask import Flask, request, render_template_string
 import os
-from PyPDF2 import PdfReader
 
 app = Flask(__name__)
 
@@ -62,11 +61,17 @@ def home():
 @app.route('/query')
 def query():
     try:
-        test_file = 'docs/05-83aa044-authorised.pdf'
-        reader = PdfReader(test_file)
-        text = reader.pages[0].extract_text()
+        files = os.listdir('docs')
+        total_content = ""
         
-        return f"Content from first page: {text[:500]}"
+        # Just looking at first file to test
+        first_file = files[0]
+        file_path = os.path.join('docs', first_file)
+        with open(file_path, 'r', errors='ignore') as f:
+            content = f.read()
+            total_content += f"Content from {first_file}: {content[:1000]}\n\n"
+        
+        return total_content
     except Exception as e:
         return f"Error: {str(e)}"
 
