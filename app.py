@@ -58,20 +58,44 @@ HTML_TEMPLATE = '''
 def home():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route('/query')
+@@app.route('/query')
 def query():
     try:
         from pypdf import PdfReader
-        files = os.listdir('docs')
+        import openai
+        from dotenv import load_dotenv
         
-        # Try the first PDF file
+        load_dotenv()
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+        
+        user_question = request.args.get('q', '')
+        files = os.listdir('docs')
+        all_text = ""
+        
+        # Get content from PDFs
         for file in files:
             if file.endswith('.pdf'):
                 reader = PdfReader(f'docs/{file}')
-                text = reader.pages[0].extract_text()
-                return f"Content from {file}:\n{text[:1000]}"
-                
-        return "No PDF files found"
+                for page in reader.pages:
+                    all_text += page.extract_text() + "\n\n"
+        
+        # Ask OpenAI
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Answer questions based on the provided documents."},
+                {"role": "user", "content": f"Based on this document: {all_text[:4000]}\n\nQuestion: {user_question}"}
+            ]
+        )
+        
+        return response.choices[0].message['content']
+        
+    except Exception as e:
+        return f"Error: {str(e)}"": "user", "content": f"Based on this document: {all_text[:4000]}\n\nQuestion: {user_question}"}
+            ]
+        )
+        
+        return response.choices[0].message['content']
     except Exception as e:
         return f"Error: {str(e)}"
 
