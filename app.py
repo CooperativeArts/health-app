@@ -65,16 +65,16 @@ def query():
         import openai
         from dotenv import load_dotenv
         
-        print("Starting query process")
+        app.logger.info("Starting query process")
         load_dotenv()
         openai.api_key = os.getenv('OPENAI_API_KEY')
-        print(f"Got API key: {openai.api_key[:5]}...")  # Just first 5 chars for safety
+        app.logger.info("Loaded API key")
         
         user_question = request.args.get('q', '')
-        print(f"Got question: {user_question}")
+        app.logger.info(f"Got question: {user_question}")
         
         files = os.listdir('docs')
-        print(f"Found {len(files)} files")
+        app.logger.info(f"Found {len(files)} files")
         
         all_text = ""
         count = 0
@@ -82,16 +82,16 @@ def query():
         # Get content from PDFs
         for file in files:
             if file.endswith('.pdf'):
-                print(f"Reading {file}")
+                app.logger.info(f"Reading {file}")
                 reader = PdfReader(f'docs/{file}')
                 for page in reader.pages:
                     all_text += page.extract_text() + "\n\n"
                 count += 1
                 
-        print(f"Read {count} PDFs, total text length: {len(all_text)}")
+        app.logger.info(f"Read {count} PDFs, total text length: {len(all_text)}")
         
         # Ask OpenAI
-        print("Sending to OpenAI")
+        app.logger.info("Sending to OpenAI")
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -101,11 +101,11 @@ def query():
         )
         
         answer = response.choices[0].message['content']
-        print(f"Got answer from OpenAI: {answer[:100]}...")
+        app.logger.info(f"Got answer from OpenAI")
         return answer
         
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
+        app.logger.error(f"Error occurred: {str(e)}")
         return f"Error: {str(e)}"
 
 if __name__ == '__main__':
