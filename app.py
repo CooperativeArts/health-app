@@ -71,32 +71,22 @@ def home():
 @app.route('/query')
 def query():
     try:
-        # Just list what files we find
         files = os.listdir('docs')
-        return f"Found these files: {files}"
+        content_preview = {}
+        
+        for file in files:
+            try:
+                if file.endswith('.txt'):
+                    with open(f'docs/{file}', 'r') as f:
+                        content = f.read()
+                        content_preview[file] = content[:200]  # First 200 chars of each file
+                elif file.endswith('.pdf'):
+                    content_preview[file] = "PDF file found"
+            except Exception as e:
+                content_preview[file] = f"Error reading file: {str(e)}"
+                
+        return f"Files and their content: {content_preview}"
     except Exception as e:
-        return f"Error: {str(e)}"
-        
-        if not documents:
-            return "No documents were successfully loaded. Please check the docs folder."
-
-        print(f"Number of documents loaded: {len(documents)}")
-        
-        text_splitter = CharacterTextSplitter(chunk_size=200, chunk_overlap=20)
-        texts = text_splitter.split_documents(documents)
-        print(f"Split into {len(texts)} chunks")
-        
-        embeddings = OpenAIEmbeddings()
-        db = FAISS.from_documents(texts, embeddings)
-        qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=db.as_retriever())
-        
-        print(f"Processing query: {user_query}")
-        response = qa.run(user_query)
-        print(f"Got response: {response}")
-        
-        return response if response else "No answer found. Please try rephrasing your question."
-    except Exception as e:
-        print(f"Main error: {str(e)}")
         return f"Error: {str(e)}"
 
 if __name__ == '__main__':
