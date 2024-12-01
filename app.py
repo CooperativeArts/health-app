@@ -54,16 +54,17 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-@app.route('/')
-def home():
-    return render_template_string(HTML_TEMPLATE)
-
 @app.route('/query')
 def query():
     try:
-        current_dir = os.getcwd()
-        files = os.listdir('docs')
-        return f"Current directory: {current_dir}\nFiles in docs: {files}"
+        # Try reading just one PDF file first
+        from PyPDF2 import PdfReader
+        
+        test_file = 'docs/05-83aa044-authorised.pdf'
+        reader = PdfReader(test_file)
+        text = reader.pages[0].extract_text()
+        
+        return f"Content from first page: {text[:500]}"
     except Exception as e:
         return f"Error: {str(e)}"
 
