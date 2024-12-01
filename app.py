@@ -58,7 +58,7 @@ HTML_TEMPLATE = '''
 def home():
     return render_template_string(HTML_TEMPLATE)
 
-@@app.route('/query')
+@app.route('/query')
 def query():
     try:
         from pypdf import PdfReader
@@ -90,12 +90,6 @@ def query():
         
         return response.choices[0].message['content']
         
-    except Exception as e:
-        return f"Error: {str(e)}"": "user", "content": f"Based on this document: {all_text[:4000]}\n\nQuestion: {user_question}"}
-            ]
-        )
-        
-        return response.choices[0].message['content']
     except Exception as e:
         return f"Error: {str(e)}"
 
