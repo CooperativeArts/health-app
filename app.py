@@ -67,6 +67,7 @@ HTML_TEMPLATE = '''
 @app.route('/')
 def home():
     return render_template_string(HTML_TEMPLATE)
+
 @app.route('/query')
 def query():
     try:
