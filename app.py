@@ -71,26 +71,11 @@ def home():
 @app.route('/query')
 def query():
     try:
-        user_query = request.args.get('q', 'What is this about?')
-        documents = []
-        
-        print("Checking docs folder...")
+        # Just list what files we find
         files = os.listdir('docs')
-        print(f"Found files: {files}")
-        
-        for file in files:
-            try:
-                if file.endswith('.txt'):
-                    print(f"Loading text file: {file}")
-                    with open(f'docs/{file}', 'r') as f:
-                        content = f.read()
-                        print(f"Content preview: {content[:100]}")  # Show first 100 chars
-                    documents.extend(TextLoader(f'docs/{file}').load())
-                elif file.endswith('.pdf'):
-                    print(f"Loading PDF file: {file}")
-                    documents.extend(PyPDFLoader(f'docs/{file}').load())
-            except Exception as file_error:
-                print(f"Error with file {file}: {str(file_error)}")
+        return f"Found these files: {files}"
+    except Exception as e:
+        return f"Error: {str(e)}"
         
         if not documents:
             return "No documents were successfully loaded. Please check the docs folder."
