@@ -68,40 +68,45 @@ def query():
         app.logger.info("Starting query process")
         load_dotenv()
         openai.api_key = os.getenv('OPENAI_API_KEY')
-        app.logger.info("Loaded API key")
         
         user_question = request.args.get('q', '')
         app.logger.info(f"Got question: {user_question}")
         
-        files = os.listdir('docs')
-        app.logger.info(f"Found {len(files)} files")
+        files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
+        app.logger.info(f"Found {len(files)} PDF files")
         
-        all_text = ""
-        count = 0
-        
-        # Get content from PDFs
+        all_documents = []
         for file in files:
-            if file.endswith('.pdf'):
+            try:
                 app.logger.info(f"Reading {file}")
                 reader = PdfReader(f'docs/{file}')
+                file_text = ""
                 for page in reader.pages:
-                    all_text += page.extract_text() + "\n\n"
-                count += 1
-                
-        app.logger.info(f"Read {count} PDFs, total text length: {len(all_text)}")
+                    file_text += page.extract_text() + "\n"
+                all_documents.append({"name": file, "content": file_text})
+                app.logger.info(f"Successfully read {file}")
+            except Exception as e:
+                app.logger.error(f"Error reading {file}: {str(e)}")
+                continue
         
-        # Ask OpenAI
+        combined_text = ""
+        for doc in all_documents:
+            combined_text += f"\nFrom {doc['name']}:\n{doc['content']}\n"
+            
+        app.logger.info(f"Processed {len(all_documents)} documents")
+        
+        # Ask OpenAI using combined text
         app.logger.info("Sending to OpenAI")
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Answer questions based on the provided documents."},
-                {"role": "user", "content": f"Based on this document: {all_text[:4000]}\n\nQuestion: {user_question}"}
+                {"role": "system", "content": "Answer questions based on all the provided documents, mentioning which document(s) contain the relevant information."},
+                {"role": "user", "content": f"Based on these documents:\n{combined_text[:4000]}\n\nQuestion: {user_question}"}
             ]
         )
         
         answer = response.choices[0].message['content']
-        app.logger.info(f"Got answer from OpenAI")
+        app.logger.info("Got response from OpenAI")
         return answer
         
     except Exception as e:
