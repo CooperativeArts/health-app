@@ -98,12 +98,12 @@ def query():
         # Ask OpenAI using combined text
         app.logger.info("Sending to OpenAI")
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Answer questions based on all the provided documents, mentioning which document(s) contain the relevant information."},
-                {"role": "user", "content": f"Based on these documents:\n{combined_text[:4000]}\n\nQuestion: {user_question}"}
-            ]
-        )
+    model="gpt-3.5-turbo-16k",  # Changed model
+    messages=[
+        {"role": "system", "content": "Answer questions based on all the provided documents, mentioning which document(s) contain the relevant information."},
+        {"role": "user", "content": f"Based on these documents:\n{combined_text[:15000]}\n\nQuestion: {user_question}"}  # Increased to 15000
+    ]
+)
         
         answer = response.choices[0].message['content']
         app.logger.info("Got response from OpenAI")
