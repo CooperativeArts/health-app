@@ -70,59 +70,79 @@ def query():
        openai.api_key = os.getenv('OPENAI_API_KEY')
        
        user_question = request.args.get('q', '')
-       app.logger.info(f"Got question: {user_question}")
+       keywords = [word.lower() for word in user_question.split() if len(word) > 3]
+       app.logger.info(f"Processing question: {user_question}")
+       app.logger.info(f"Looking for keywords: {keywords}")
        
        files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
        app.logger.info(f"Found {len(files)} PDF files")
        
-       all_documents = []
+       relevant_content = []
        for file in files:
            try:
-               app.logger.info(f"Reading {file}")
+               app.logger.info(f"Scanning {file}")
                reader = PdfReader(f'docs/{file}')
                file_text = ""
-               for page in reader.pages:
-                   file_text += page.extract_text() + "\n"
-               all_documents.append({"name": file, "content": file_text})
-               app.logger.info(f"Successfully read {file}")
+               relevant_pages = []
+               
+               # First pass: identify relevant pages
+               for page_num, page in enumerate(reader.pages):
+                   page_text = page.extract_text()
+                   if any(keyword in page_text.lower() for keyword in keywords):
+                       relevant_pages.append((page_num, page_text))
+               
+               # If found relevant pages, add to content
+               if relevant_pages:
+                   content = {
+                       "name": file,
+                       "pages": relevant_pages,
+                       "relevance_score": sum(1 for p in relevant_pages 
+                                           for k in keywords 
+                                           if k in p[1].lower())
+                   }
+                   relevant_content.append(content)
+                   app.logger.info(f"Found relevant content in {file}")
+               
            except Exception as e:
-               app.logger.error(f"Error reading {file}: {str(e)}")
+               app.logger.error(f"Error processing {file}: {str(e)}")
                continue
        
+       # Sort documents by relevance score
+       relevant_content.sort(key=lambda x: x['relevance_score'], reverse=True)
+       
+       # Combine content from most relevant documents
        combined_text = ""
-       for doc in all_documents:
-           combined_text += f"\nFrom {doc['name']}:\n{doc['content']}\n"
+       total_length = 0
+       max_length = 6000  # Character limit for context
+       
+       for doc in relevant_content:
+           doc_text = f"\nFrom {doc['name']}:\n"
+           for _, page_text in doc['pages']:
+               doc_text += page_text + "\n"
            
-       app.logger.info(f"Processed {len(all_documents)} documents")
+           if total_length + len(doc_text) > max_length:
+               # If adding this document would exceed limit, skip it
+               continue
+               
+           combined_text += doc_text
+           total_length += len(doc_text)
        
-       # Break text into chunks and get responses
-       chunk_size = 15000
-       text_chunks = [combined_text[i:i+chunk_size] for i in range(0, len(combined_text), chunk_size)]
-       all_answers = []
+       app.logger.info(f"Prepared {len(relevant_content)} relevant documents")
        
-       for chunk in text_chunks[:3]:  # Process first 3 chunks (45000 chars total)
-           response = openai.ChatCompletion.create(
-               model="gpt-4",
-               messages=[
-                   {"role": "system", "content": "You are a highly knowledgeable assistant analyzing multiple documents. Provide detailed, accurate answers and cite which specific documents contain the information you're referencing. If information appears in multiple documents, mention all relevant sources."},
-                   {"role": "user", "content": f"Based on this portion of the documents:\n{chunk}\n\nQuestion: {user_question}"}
-               ],
-               temperature=0
-           )
-           all_answers.append(response.choices[0].message['content'])
-
-       # Combine answers
-       final_response = openai.ChatCompletion.create(
+       response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
-               {"role": "system", "content": "Combine these responses into one coherent answer. Remove any duplicates and maintain document citations."},
-               {"role": "user", "content": f"Combine these responses about '{user_question}':\n\n" + "\n\n".join(all_answers)}
+               {"role": "system", "content": """You are a highly knowledgeable assistant analyzing documents about child safety, MARAM, and related topics. 
+               Provide detailed, accurate answers and cite which specific documents contain the information you're referencing. 
+               If information appears in multiple documents, mention all relevant sources. 
+               If you can't find relevant information in the provided documents, say so."""},
+               {"role": "user", "content": f"Based on these documents:\n{combined_text}\n\nQuestion: {user_question}\n\nProvide a comprehensive answer with document citations."}
            ],
            temperature=0
        )
        
-       answer = final_response.choices[0].message['content']
-       app.logger.info("Got response from OpenAI")
+       answer = response.choices[0].message['content']
+       app.logger.info("Completed response")
        return answer
        
    except Exception as e:
