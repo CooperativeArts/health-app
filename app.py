@@ -1,5 +1,5 @@
 from flask import Flask, request, render_template_string
-from openai import OpenAI
+import openai
 import os
 from dotenv import load_dotenv
 
@@ -67,9 +67,7 @@ def query():
        
        app.logger.info("Starting query process")
        load_dotenv()
-       client = OpenAI(
-            api_key=os.getenv('OPENAI_API_KEY')
-        )
+       openai.api_key = os.getenv('OPENAI_API_KEY')
        
        user_question = request.args.get('q', '')
        app.logger.info(f"Got question: {user_question}")
@@ -99,7 +97,7 @@ def query():
        
        # Ask OpenAI using combined text
        app.logger.info("Sending to OpenAI")
-       response = client.chat.completions.create(
+       response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
                {"role": "system", "content": "You are a highly knowledgeable assistant analyzing multiple documents. Provide detailed, accurate answers and cite which specific documents contain the information you're referencing. If information appears in multiple documents, mention all relevant sources."},
@@ -108,7 +106,7 @@ def query():
            temperature=0
        )
        
-       answer = response.choices[0].message.content
+       answer = response.choices[0].message['content']
        app.logger.info("Got response from OpenAI")
        return answer
        
