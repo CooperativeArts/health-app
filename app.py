@@ -98,11 +98,12 @@ def query():
         # Ask OpenAI using combined text
         app.logger.info("Sending to OpenAI")
         response = openai.ChatCompletion.create(
-    model="gpt-3.5-turbo-16k",  # Changed model
+    model="gpt-4",  # Changed from gpt-3.5-turbo to gpt-4
     messages=[
-        {"role": "system", "content": "Answer questions based on all the provided documents, mentioning which document(s) contain the relevant information."},
-        {"role": "user", "content": f"Based on these documents:\n{combined_text[:15000]}\n\nQuestion: {user_question}"}  # Increased to 15000
-    ]
+        {"role": "system", "content": "You are a highly knowledgeable assistant analyzing multiple documents. Provide detailed, accurate answers and cite which specific documents contain the information you're referencing. If information appears in multiple documents, mention all relevant sources."},
+        {"role": "user", "content": f"Based on these documents:\n{combined_text[:15000]}\n\nQuestion: {user_question}"}
+    ],
+    temperature=0  # Added for more precise responses
 )
         
         answer = response.choices[0].message['content']
