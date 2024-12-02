@@ -67,8 +67,9 @@ def query():
        
        app.logger.info("Starting query process")
        load_dotenv()
-       client = OpenAI()
-       client.api_key = os.getenv('OPENAI_API_KEY')
+       client = OpenAI(
+            api_key=os.getenv('OPENAI_API_KEY')
+        )
        
        user_question = request.args.get('q', '')
        app.logger.info(f"Got question: {user_question}")
