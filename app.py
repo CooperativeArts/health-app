@@ -95,18 +95,33 @@ def query():
            
        app.logger.info(f"Processed {len(all_documents)} documents")
        
-       # Ask OpenAI using combined text
-       app.logger.info("Sending to OpenAI")
-       response = openai.ChatCompletion.create(
+       # Break text into chunks and get responses
+       chunk_size = 15000
+       text_chunks = [combined_text[i:i+chunk_size] for i in range(0, len(combined_text), chunk_size)]
+       all_answers = []
+       
+       for chunk in text_chunks[:3]:  # Process first 3 chunks (45000 chars total)
+           response = openai.ChatCompletion.create(
+               model="gpt-4",
+               messages=[
+                   {"role": "system", "content": "You are a highly knowledgeable assistant analyzing multiple documents. Provide detailed, accurate answers and cite which specific documents contain the information you're referencing. If information appears in multiple documents, mention all relevant sources."},
+                   {"role": "user", "content": f"Based on this portion of the documents:\n{chunk}\n\nQuestion: {user_question}"}
+               ],
+               temperature=0
+           )
+           all_answers.append(response.choices[0].message['content'])
+
+       # Combine answers
+       final_response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
-               {"role": "system", "content": "You are a highly knowledgeable assistant analyzing multiple documents. Provide detailed, accurate answers and cite which specific documents contain the information you're referencing. If information appears in multiple documents, mention all relevant sources."},
-               {"role": "user", "content": f"Based on these documents:\n{combined_text[:15000]}\n\nQuestion: {user_question}"}
+               {"role": "system", "content": "Combine these responses into one coherent answer. Remove any duplicates and maintain document citations."},
+               {"role": "user", "content": f"Combine these responses about '{user_question}':\n\n" + "\n\n".join(all_answers)}
            ],
            temperature=0
        )
        
-       answer = response.choices[0].message['content']
+       answer = final_response.choices[0].message['content']
        app.logger.info("Got response from OpenAI")
        return answer
        
