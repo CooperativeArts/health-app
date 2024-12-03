@@ -70,40 +70,52 @@ def query():
         openai.api_key = os.getenv('OPENAI_API_KEY')
         
         user_question = request.args.get('q', '')
-        
-        # Read all documents first
-        all_content = []
         files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
         
+        # Read just the first page of each document first
+        preview_text = ""
         for file in files:
             try:
                 reader = PdfReader(f'docs/{file}')
-                file_text = f"\nFrom {file}:\n"
-                for page in reader.pages:
-                    file_text += page.extract_text() + "\n"
-                all_content.append(file_text)
+                first_page = reader.pages[0].extract_text()
+                preview_text += f"\nFrom {file} (first page):\n{first_page}\n"
             except Exception as e:
                 continue
-
-        # Combine all content and split into smaller chunks
-        combined_text = "".join(all_content)
-        chunk_size = 4000  # Smaller chunks
-        chunks = [combined_text[i:i+chunk_size] for i in range(0, len(combined_text), chunk_size)]
+                
+        # First check which documents might be relevant
+        check_response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Review these document previews and identify which ones might contain information about the question."},
+                {"role": "user", "content": f"Based on these first pages:\n{preview_text[:4000]}\n\nWhich documents likely contain information about: {user_question}"}
+            ]
+        )
         
-        # Process first few chunks
-        all_responses = []
-        for chunk in chunks[:3]:  # Limit to first 3 chunks
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are analyzing documents. Always mention which documents contain the information you find."},
-                    {"role": "user", "content": f"Based on this text:\n{chunk}\n\nQuestion: {user_question}"}
-                ],
-                temperature=0
-            )
-            all_responses.append(response.choices[0].message['content'])
-
-        return "\n\nCombined findings:\n\n" + "\n".join(all_responses)
+        potential_docs = check_response.choices[0].message['content']
+        
+        # Now read the full content of potentially relevant documents
+        relevant_content = ""
+        for file in files:
+            if file.lower() in potential_docs.lower():
+                try:
+                    reader = PdfReader(f'docs/{file}')
+                    for page in reader.pages:
+                        relevant_content += f"\nFrom {file}:\n{page.extract_text()}\n"
+                except Exception as e:
+                    continue
+        
+        if not relevant_content:
+            return "Could not find relevant information in the documents."
+            
+        final_response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are analyzing documents about MARAM, child safety, and related topics. Provide detailed information with document citations."},
+                {"role": "user", "content": f"Based on these documents:\n{relevant_content[:4000]}\n\nQuestion: {user_question}"}
+            ]
+        )
+        
+        return final_response.choices[0].message['content']
         
     except Exception as e:
         return f"Error: {str(e)}"
