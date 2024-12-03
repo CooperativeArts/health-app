@@ -3,7 +3,58 @@ import openai
 import os
 from dotenv import load_dotenv
 
-[Previous HTML_TEMPLATE stays the same...]
+app = Flask(__name__)
+
+HTML_TEMPLATE = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RAG Chat</title>
+    <style>
+        body { max-width: 800px; margin: auto; padding: 20px; }
+        #chat-box { height: 400px; border: 1px solid #ccc; overflow-y: scroll; margin: 20px 0; padding: 10px; }
+        input[type="text"] { width: 80%; padding: 10px; }
+        button { padding: 10px 20px; }
+        .loading { color: #666; }
+    </style>
+</head>
+<body>
+    <h1>Document Q&A</h1>
+    <div id="chat-box"></div>
+    <form id="chat-form">
+        <input type="text" id="question" placeholder="Ask a question..." required>
+        <button type="submit" id="submit-btn">Send</button>
+    </form>
+    <script>
+        document.getElementById('chat-form').onsubmit = async function(e) {
+            e.preventDefault();
+            const chatBox = document.getElementById('chat-box');
+            const question = document.getElementById('question').value;
+            const submitBtn = document.getElementById('submit-btn');
+            
+            submitBtn.disabled = true;
+            chatBox.innerHTML += '<p><b>Q:</b> ' + question + '</p>';
+            chatBox.innerHTML += '<p class="loading">Loading...</p>';
+            chatBox.scrollTop = chatBox.scrollHeight;
+            
+            try {
+                const response = await fetch('/query?q=' + encodeURIComponent(question));
+                const answer = await response.text();
+                chatBox.removeChild(chatBox.lastChild);
+                chatBox.innerHTML += '<p><b>A:</b> ' + answer + '</p>';
+            } catch (error) {
+                chatBox.removeChild(chatBox.lastChild);
+                chatBox.innerHTML += '<p style="color: red;"><b>Error:</b> ' + error.message + '</p>';
+            } finally {
+                submitBtn.disabled = false;
+                document.getElementById('question').value = '';
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        };
+    </script>
+</body>
+</html>
+'''
 
 @app.route('/')
 def home():
@@ -18,77 +69,35 @@ def query():
         openai.api_key = os.getenv('OPENAI_API_KEY')
         
         user_question = request.args.get('q', '')
+        files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
         
-        # Get current working directory and full path to docs
-        cwd = os.getcwd()
-        docs_path = os.path.join(cwd, 'docs')
-        
-        # List all PDF files
-        files = [f for f in os.listdir(docs_path) if f.endswith('.pdf')]
-        
+        # Read content from all files
         all_text = ""
-        total_size = 0
-        max_size = 15000  # Increased significantly
-        files_read = []
-
-        # If user asks about specific file, prioritize it
-        specific_file = None
-        for file in files:
-            if file.lower() in user_question.lower():
-                specific_file = file
-                files.remove(file)
-                files.insert(0, file)  # Put it first
+        max_chars = 15000
 
         for file in files:
             try:
-                reader = PdfReader(os.path.join(docs_path, file))
-                file_content = f"\n=== Start of {file} ===\n"
+                reader = PdfReader(f'docs/{file}')
+                file_text = f"\n=== Document: {file} ===\n"
                 
-                # Read more pages if it's the specifically requested file
-                pages_to_read = 5 if file == specific_file else 2
+                # Get first 3 pages of each document
+                for i, page in enumerate(reader.pages[:3]):
+                    file_text += f"[Page {i+1}]: {page.extract_text()}\n"
+                    
+                all_text += file_text + "\n"
                 
-                for page_num, page in enumerate(reader.pages[:pages_to_read]):
-                    page_text = page.extract_text()
-                    if total_size + len(page_text) < max_size:
-                        file_content += f"[Page {page_num + 1}]: {page_text}\n"
-                        total_size += len(page_text)
-                    else:
-                        if file == specific_file:
-                            # For specific file, clear some space
-                            all_text = all_text[:max_size//2]  # Keep only half of previous content
-                            total_size = len(all_text)
-                            file_content += f"[Page {page_num + 1}]: {page_text}\n"
-                            total_size += len(page_text)
-                        else:
-                            break
-                
-                file_content += f"=== End of {file} ===\n\n"
-                all_text += file_content
-                files_read.append(file)
-                
+                # If we exceed max chars, keep the latest content
+                if len(all_text) > max_chars:
+                    all_text = all_text[-max_chars:]
+                    
             except Exception as e:
-                print(f"Error reading {file}: {str(e)}")
                 continue
-
-        if not all_text.strip():
-            return "Error: No content could be read from the documents."
 
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": """You are analyzing PDF documents. You have access to content from multiple files.
-                When answering questions:
-                1. Use only the content actually provided in the text
-                2. Cite specific documents and page numbers
-                3. If you're asked about a specific document but don't see its content, mention that
-                4. If you find relevant information, quote it directly"""},
-                {"role": "user", "content": f"""Here is content from multiple documents:
-
-{all_text}
-
-Question: {user_question}
-
-Please answer based only on the content provided above. If asked about a specific document, prioritize information from that document."""}
+                {"role": "system", "content": "You are analyzing PDF documents. Provide information only from the content shown. If you see a document name but no content, mention that."},
+                {"role": "user", "content": f"Documents content:\n{all_text}\n\nQuestion: {user_question}"}
             ],
             temperature=0
         )
