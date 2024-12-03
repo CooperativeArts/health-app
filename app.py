@@ -71,50 +71,40 @@ def query():
        user_question = request.args.get('q', '')
        files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
        
-       # Read just the first page of each document first
-       preview_text = ""
+       # Read all PDFs
+       all_text = ""
+       total_size = 0
+       max_size = 4000  # Size limit for GPT-4
+
        for file in files:
            try:
                reader = PdfReader(f'docs/{file}')
-               first_page = reader.pages[0].extract_text()
-               preview_text += f"\nFrom {file} (first page):\n{first_page}\n"
-           except Exception as e:
-               continue
+               file_content = f"\n=== Document: {file} ===\n"
                
-       # First check which documents might be relevant
-       check_response = openai.ChatCompletion.create(
+               for page_num, page in enumerate(reader.pages):
+                   page_text = page.extract_text()
+                   if total_size + len(page_text) < max_size:
+                       file_content += f"[Page {page_num + 1}]: {page_text}\n"
+                       total_size += len(page_text)
+                   else:
+                       break
+                       
+               all_text += file_content
+               
+           except Exception as e:
+               print(f"Error with {file}: {e}")
+               continue
+
+       # Send to GPT-4
+       response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
-               {"role": "system", "content": "Review these document previews and identify which ones might contain information about the question."},
-               {"role": "user", "content": f"Based on these first pages:\n{preview_text[:4000]}\n\nWhich documents likely contain information about: {user_question}"}
+               {"role": "system", "content": "You are analyzing multiple documents about MARAM, child safety, and related topics. Provide detailed information with citations to specific documents and page numbers."},
+               {"role": "user", "content": f"Here are sections from multiple documents:\n{all_text}\n\nQuestion: {user_question}"}
            ]
        )
        
-       potential_docs = check_response.choices[0].message['content']
-       
-       # Now read the full content of potentially relevant documents
-       relevant_content = ""
-       for file in files:
-           if file.lower() in potential_docs.lower():
-               try:
-                   reader = PdfReader(f'docs/{file}')
-                   for page in reader.pages:
-                       relevant_content += f"\nFrom {file}:\n{page.extract_text()}\n"
-               except Exception as e:
-                   continue
-       
-       if not relevant_content:
-           return "Could not find relevant information in the documents."
-           
-       final_response = openai.ChatCompletion.create(
-           model="gpt-4",
-           messages=[
-               {"role": "system", "content": "You are analyzing documents about MARAM, child safety, and related topics. Provide detailed information with document citations."},
-               {"role": "user", "content": f"Based on these documents:\n{relevant_content[:4000]}\n\nQuestion: {user_question}"}
-           ]
-       )
-       
-       return final_response.choices[0].message['content']
+       return response.choices[0].message['content']
        
    except Exception as e:
        return f"Error: {str(e)}"
