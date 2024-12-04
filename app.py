@@ -10,7 +10,7 @@ HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
 <head>
-   <title>RAG Chat</title>
+   <title>CARA</title>
    <style>
        body { max-width: 800px; margin: auto; padding: 20px; }
        #chat-box { height: 400px; border: 1px solid #ccc; overflow-y: scroll; margin: 20px 0; padding: 10px; }
@@ -20,7 +20,7 @@ HTML_TEMPLATE = '''
    </style>
 </head>
 <body>
-   <h1>Document Q&A</h1>
+   <h1>Compliance and Risk Assistant</h1>
    <div id="chat-box"></div>
    <form id="chat-form">
        <input type="text" id="question" placeholder="Ask a question..." required>
@@ -71,7 +71,7 @@ def query():
        user_question = request.args.get('q', '')
        
        # Document reading settings
-       max_chars = 50000  # Increased substantially
+       max_chars = 25000  # Reduced to avoid token limits
        max_pages_per_doc = 10  # Read more pages from each doc
        
        # Track document info
@@ -81,23 +81,33 @@ def query():
        
        # First pass - collect info about all documents
        files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
+       
+       # Prioritize documents that match the question terms
+       search_terms = [term.lower() for term in user_question.split()]
+       prioritized_files = []
+       other_files = []
+       
        for file in files:
            try:
                reader = PdfReader(f'docs/{file}')
+               first_page = reader.pages[0].extract_text().lower()
+               if any(term in first_page for term in search_terms):
+                   prioritized_files.append(file)
+               else:
+                   other_files.append(file)
+                   
                doc_info[file] = {
                    'total_pages': len(reader.pages),
                    'chars_per_page': [],
-                   'content_preview': ""
+                   'is_priority': file in prioritized_files
                }
-               
-               # Get size info for first few pages
-               for i in range(min(3, len(reader.pages))):
-                   text = reader.pages[i].extract_text()
-                   doc_info[file]['chars_per_page'].append(len(text))
                
            except Exception as e:
                print(f"Error analyzing {file}: {str(e)}")
                continue
+       
+       # Process prioritized files first, then others
+       files = prioritized_files + other_files
        
        # First priority - read at least first page of every document
        for file in files:
@@ -115,7 +125,7 @@ def query():
        # Second pass - get more pages from each document
        remaining_chars = max_chars - total_chars
        if remaining_chars > 1000:  # Only if we have reasonable space left
-           for file in files:
+           for file in prioritized_files:  # Start with prioritized files
                try:
                    reader = PdfReader(f'docs/{file}')
                    for page_num in range(1, min(max_pages_per_doc, len(reader.pages))):
@@ -140,7 +150,8 @@ def query():
        stats = {
            'total_files': len(files),
            'total_chars': total_chars,
-           'files_read': list(doc_info.keys())
+           'files_read': list(doc_info.keys()),
+           'prioritized_files': prioritized_files
        }
        print(f"Document stats: {json.dumps(stats, indent=2)}")
        
@@ -148,11 +159,12 @@ def query():
        response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
-               {"role": "system", "content": """You are analyzing multiple PDF documents. Important guidelines:
+               {"role": "system", "content": """You are a Compliance and Risk Assistant analyzing multiple PDF documents. Important guidelines:
                1. Always specify which document and page number contains your information
                2. If you don't find specific information but see related content, mention where it might be in the unread pages
                3. If you're not sure about something, say so
-               4. Quote relevant text when possible"""},
+               4. Quote relevant text when possible
+               5. Focus on accuracy and compliance details"""},
                {"role": "user", "content": f"Documents content:\n{all_text}\n\nQuestion: {user_question}\n\nProvide a detailed answer with specific document references."}
            ],
            temperature=0
