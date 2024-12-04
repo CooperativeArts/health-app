@@ -3,6 +3,8 @@ import openai
 import os
 from dotenv import load_dotenv
 import json
+from collections import defaultdict
+import re
 
 app = Flask(__name__)
 
@@ -61,6 +63,28 @@ HTML_TEMPLATE = '''
 def home():
    return render_template_string(HTML_TEMPLATE)
 
+def scan_document(reader, search_terms):
+   """Scan document for relevant content and return relevant pages with context."""
+   relevant_sections = []
+   
+   for page_num, page in enumerate(reader.pages):
+       text = page.extract_text().lower()
+       
+       # Check for search terms
+       for term in search_terms:
+           if term in text:
+               # Get paragraph context around the term
+               paragraphs = text.split('\n\n')
+               for para in paragraphs:
+                   if term in para:
+                       relevant_sections.append({
+                           'page': page_num + 1,
+                           'context': para,
+                           'relevance_score': sum(term in para.lower() for term in search_terms)
+                       })
+   
+   return relevant_sections
+
 @app.route('/query')
 def query():
    try:
@@ -70,110 +94,88 @@ def query():
        openai.api_key = os.getenv('OPENAI_API_KEY')
        user_question = request.args.get('q', '')
        
-       # Document reading settings
-       max_chars = 25000  # Reduced to avoid token limits
-       max_pages_per_doc = 10  # Read more pages from each doc
-       
-       # Track document info
-       doc_info = {}
-       all_text = ""
-       total_chars = 0
-       
-       # First pass - collect info about all documents
-       files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
-       
-       # Prioritize documents that match the question terms
-       search_terms = [term.lower() for term in user_question.split()]
-       prioritized_files = []
-       other_files = []
-       
-       for file in files:
-           try:
-               reader = PdfReader(f'docs/{file}')
-               first_page = reader.pages[0].extract_text().lower()
-               if any(term in first_page for term in search_terms):
-                   prioritized_files.append(file)
-               else:
-                   other_files.append(file)
-                   
-               doc_info[file] = {
-                   'total_pages': len(reader.pages),
-                   'chars_per_page': [],
-                   'is_priority': file in prioritized_files
-               }
-               
-           except Exception as e:
-               print(f"Error analyzing {file}: {str(e)}")
-               continue
-       
-       # Process prioritized files first, then others
-       files = prioritized_files + other_files
-       
-       # First priority - read at least first page of every document
-       for file in files:
-           try:
-               if total_chars < max_chars:
-                   reader = PdfReader(f'docs/{file}')
-                   page_text = reader.pages[0].extract_text()
-                   doc_content = f"\n=== Start of {file} ===\n[Page 1]:\n{page_text}\n"
-                   all_text += doc_content
-                   total_chars += len(doc_content)
-           except Exception as e:
-               print(f"Error reading first page of {file}: {str(e)}")
-               continue
-       
-       # Second pass - get more pages from each document
-       remaining_chars = max_chars - total_chars
-       if remaining_chars > 1000:  # Only if we have reasonable space left
-           for file in prioritized_files:  # Start with prioritized files
-               try:
-                   reader = PdfReader(f'docs/{file}')
-                   for page_num in range(1, min(max_pages_per_doc, len(reader.pages))):
-                       if remaining_chars < 1000:
-                           break
-                           
-                       page_text = reader.pages[page_num].extract_text()
-                       doc_content = f"\n=== Continued {file} ===\n[Page {page_num + 1}]:\n{page_text}\n"
-                       
-                       if len(doc_content) < remaining_chars:
-                           all_text += doc_content
-                           total_chars += len(doc_content)
-                           remaining_chars = max_chars - total_chars
-                       else:
-                           break
-                           
-               except Exception as e:
-                   print(f"Error reading additional pages of {file}: {str(e)}")
-                   continue
-       
-       # Document statistics
-       stats = {
-           'total_files': len(files),
-           'total_chars': total_chars,
-           'files_read': list(doc_info.keys()),
-           'prioritized_files': prioritized_files
-       }
-       print(f"Document stats: {json.dumps(stats, indent=2)}")
-       
-       # Send to GPT-4 with enhanced instructions
+       # Extract key terms from question
        response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
-               {"role": "system", "content": """You are a Compliance and Risk Assistant analyzing multiple PDF documents. Important guidelines:
-               1. Always specify which document and page number contains your information
-               2. If you don't find specific information but see related content, mention where it might be in the unread pages
-               3. If you're not sure about something, say so
-               4. Quote relevant text when possible
-               5. Focus on accuracy and compliance details"""},
-               {"role": "user", "content": f"Documents content:\n{all_text}\n\nQuestion: {user_question}\n\nProvide a detailed answer with specific document references."}
+               {"role": "system", "content": "Extract key search terms from this question. Return only the terms, separated by commas."},
+               {"role": "user", "content": user_question}
+           ],
+           temperature=0
+       )
+       
+       search_terms = [term.strip().lower() for term in response.choices[0].message['content'].split(',')]
+       
+       # First pass: Scan all documents for relevance
+       document_relevance = {}
+       for file in os.listdir('docs'):
+           if file.endswith('.pdf'):
+               try:
+                   reader = PdfReader(f'docs/{file}')
+                   relevant_sections = scan_document(reader, search_terms)
+                   if relevant_sections:
+                       document_relevance[file] = {
+                           'sections': relevant_sections,
+                           'total_score': sum(section['relevance_score'] for section in relevant_sections)
+                       }
+               except Exception as e:
+                   print(f"Error scanning {file}: {str(e)}")
+                   continue
+       
+       # Sort documents by relevance
+       sorted_docs = sorted(document_relevance.items(), 
+                          key=lambda x: x[1]['total_score'], 
+                          reverse=True)
+       
+       # Build context from most relevant sections
+       context_text = ""
+       total_chars = 0
+       max_chars = 25000  # GPT-4 limit safety
+
+       for doc_name, doc_info in sorted_docs:
+           context_text += f"\n=== From {doc_name} ===\n"
+           
+           # Sort sections by relevance score
+           sorted_sections = sorted(doc_info['sections'], 
+                                 key=lambda x: x['relevance_score'],
+                                 reverse=True)
+           
+           for section in sorted_sections:
+               section_text = f"[Page {section['page']}]:\n{section['context']}\n"
+               if total_chars + len(section_text) < max_chars:
+                   context_text += section_text
+                   total_chars += len(section_text)
+               else:
+                   break
+
+       if not context_text.strip():
+           return "I couldn't find any relevant information in the documents. Please try rephrasing your question or specifying which documents you'd like me to check."
+
+       # Final analysis with GPT-4
+       response = openai.ChatCompletion.create(
+           model="gpt-4",
+           messages=[
+               {"role": "system", "content": """You are a Compliance and Risk Assistant analyzing documents. Important guidelines:
+               1. Always specify which documents and pages your information comes from
+               2. If related content appears in multiple documents, synthesize the information and cite all sources
+               3. Quote relevant text when appropriate
+               4. If you see only partial information, mention that there might be more in other sections
+               5. Focus on accuracy in compliance and risk matters"""},
+               {"role": "user", "content": f"""Question: {user_question}
+
+Here are relevant sections from the documents:
+
+{context_text}
+
+Please provide a detailed answer that synthesizes information from all relevant sources."""}
            ],
            temperature=0
        )
        
        answer = response.choices[0].message['content']
        
-       # Add document coverage info to answer
-       coverage_info = f"\n\nDocument coverage: Read {len(doc_info)} documents, {total_chars} total characters."
+       # Add search coverage info
+       coverage_info = f"\n\nSearch coverage: Searched {len(os.listdir('docs'))} documents, found relevant content in {len(sorted_docs)} documents."
        
        return answer + coverage_info
        
