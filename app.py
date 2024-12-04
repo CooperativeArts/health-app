@@ -94,14 +94,15 @@ def query():
        openai.api_key = os.getenv('OPENAI_API_KEY')
        user_question = request.args.get('q', '')
        
-       # Extract key terms from question
+       # Extract key terms from question with timeout
        response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
                {"role": "system", "content": "Extract key search terms from this question. Return only the terms, separated by commas."},
                {"role": "user", "content": user_question}
            ],
-           temperature=0
+           temperature=0,
+           request_timeout=60
        )
        
        search_terms = [term.strip().lower() for term in response.choices[0].message['content'].split(',')]
@@ -130,7 +131,7 @@ def query():
        # Build context from most relevant sections
        context_text = ""
        total_chars = 0
-       max_chars = 25000  # GPT-4 limit safety
+       max_chars = 25000  # Keeping the working limit
 
        for doc_name, doc_info in sorted_docs:
            context_text += f"\n=== From {doc_name} ===\n"
@@ -151,7 +152,7 @@ def query():
        if not context_text.strip():
            return "I couldn't find any relevant information in the documents. Please try rephrasing your question or specifying which documents you'd like me to check."
 
-       # Final analysis with GPT-4
+       # Final analysis with GPT-4 with timeout
        response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
@@ -169,7 +170,8 @@ Here are relevant sections from the documents:
 
 Please provide a detailed answer that synthesizes information from all relevant sources."""}
            ],
-           temperature=0
+           temperature=0,
+           request_timeout=60
        )
        
        answer = response.choices[0].message['content']
