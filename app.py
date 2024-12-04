@@ -63,25 +63,31 @@ HTML_TEMPLATE = '''
 def home():
    return render_template_string(HTML_TEMPLATE)
 
-def scan_document(reader, search_terms):
-   """Scan document for relevant content and return relevant pages with context."""
+def extract_search_terms(question):
+   """Extract search terms without using GPT-4"""
+   # Remove common words and keep meaningful terms
+   common_words = {'what', 'is', 'are', 'in', 'the', 'and', 'or', 'to', 'a', 'an', 'about', 'how'}
+   terms = question.lower().split()
+   terms = [term.strip('?.,!') for term in terms if term.lower() not in common_words]
+   # Add any specific terms you want to catch
+   special_terms = ['maram', 'iris', 'child', 'safety', 'aboriginal', 'risk']
+   terms.extend(term for term in special_terms if term in question.lower())
+   return list(set(terms))  # Remove duplicates
+
+def quick_scan_document(reader, search_terms, max_pages=3):
+   """Quick initial scan of first few pages"""
    relevant_sections = []
    
-   for page_num, page in enumerate(reader.pages):
+   for page_num, page in enumerate(reader.pages[:max_pages]):
        text = page.extract_text().lower()
        
-       # Check for search terms
-       for term in search_terms:
-           if term in text:
-               # Get paragraph context around the term
-               paragraphs = text.split('\n\n')
-               for para in paragraphs:
-                   if term in para:
-                       relevant_sections.append({
-                           'page': page_num + 1,
-                           'context': para,
-                           'relevance_score': sum(term in para.lower() for term in search_terms)
-                       })
+       # Quick check if any term appears
+       if any(term in text for term in search_terms):
+           relevant_sections.append({
+               'page': page_num + 1,
+               'content': text,
+               'relevance_score': sum(term in text for term in search_terms)
+           })
    
    return relevant_sections
 
@@ -94,92 +100,53 @@ def query():
        openai.api_key = os.getenv('OPENAI_API_KEY')
        user_question = request.args.get('q', '')
        
-       # Extract key terms from question with timeout
-       response = openai.ChatCompletion.create(
-           model="gpt-4",
-           messages=[
-               {"role": "system", "content": "Extract key search terms from this question. Return only the terms, separated by commas."},
-               {"role": "user", "content": user_question}
-           ],
-           temperature=0,
-           request_timeout=60
-       )
+       # Extract search terms without GPT-4
+       search_terms = extract_search_terms(user_question)
+       print(f"Searching for terms: {search_terms}")
        
-       search_terms = [term.strip().lower() for term in response.choices[0].message['content'].split(',')]
+       # Quick scan of documents
+       relevant_docs = {}
+       files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
        
-       # First pass: Scan all documents for relevance
-       document_relevance = {}
-       for file in os.listdir('docs'):
-           if file.endswith('.pdf'):
-               try:
-                   reader = PdfReader(f'docs/{file}')
-                   relevant_sections = scan_document(reader, search_terms)
-                   if relevant_sections:
-                       document_relevance[file] = {
-                           'sections': relevant_sections,
-                           'total_score': sum(section['relevance_score'] for section in relevant_sections)
-                       }
-               except Exception as e:
-                   print(f"Error scanning {file}: {str(e)}")
-                   continue
+       for file in files[:5]:  # Process 5 files at a time
+           try:
+               reader = PdfReader(f'docs/{file}')
+               sections = quick_scan_document(reader, search_terms)
+               if sections:
+                   relevant_docs[file] = sections
+           except Exception as e:
+               print(f"Error with {file}: {str(e)}")
+               continue
        
-       # Sort documents by relevance
-       sorted_docs = sorted(document_relevance.items(), 
-                          key=lambda x: x[1]['total_score'], 
-                          reverse=True)
+       if not relevant_docs:
+           return "I couldn't find any relevant information in the initial document scan. Please try rephrasing your question."
        
-       # Build context from most relevant sections
+       # Build context from relevant documents
        context_text = ""
-       total_chars = 0
-       max_chars = 25000  # Keeping the working limit
-
-       for doc_name, doc_info in sorted_docs:
+       for doc_name, sections in relevant_docs.items():
            context_text += f"\n=== From {doc_name} ===\n"
-           
-           # Sort sections by relevance score
-           sorted_sections = sorted(doc_info['sections'], 
-                                 key=lambda x: x['relevance_score'],
-                                 reverse=True)
-           
-           for section in sorted_sections:
-               section_text = f"[Page {section['page']}]:\n{section['context']}\n"
-               if total_chars + len(section_text) < max_chars:
-                   context_text += section_text
-                   total_chars += len(section_text)
-               else:
-                   break
-
-       if not context_text.strip():
-           return "I couldn't find any relevant information in the documents. Please try rephrasing your question or specifying which documents you'd like me to check."
-
-       # Final analysis with GPT-4 with timeout
+           for section in sections:
+               context_text += f"[Page {section['page']}]:\n{section['content'][:2000]}\n"  # Limit each section
+       
+       # Send to GPT-4 with timeout
        response = openai.ChatCompletion.create(
            model="gpt-4",
            messages=[
                {"role": "system", "content": """You are a Compliance and Risk Assistant analyzing documents. Important guidelines:
-               1. Always specify which documents and pages your information comes from
-               2. If related content appears in multiple documents, synthesize the information and cite all sources
-               3. Quote relevant text when appropriate
-               4. If you see only partial information, mention that there might be more in other sections
-               5. Focus on accuracy in compliance and risk matters"""},
-               {"role": "user", "content": f"""Question: {user_question}
-
-Here are relevant sections from the documents:
-
-{context_text}
-
-Please provide a detailed answer that synthesizes information from all relevant sources."""}
+               1. Always specify which documents and pages contain your information
+               2. If you find relevant information, quote it directly
+               3. If you don't find specific information, say so clearly
+               4. Focus on accuracy in compliance and risk matters"""},
+               {"role": "user", "content": f"Question: {user_question}\n\nRelevant document sections:\n{context_text[:20000]}\n\nProvide a detailed answer based on the document content."}
            ],
            temperature=0,
-           request_timeout=60
+           request_timeout=30  # Shorter timeout
        )
        
        answer = response.choices[0].message['content']
+       coverage = f"\n\nSearched {len(files)} documents, found relevant content in {len(relevant_docs)} documents."
        
-       # Add search coverage info
-       coverage_info = f"\n\nSearch coverage: Searched {len(os.listdir('docs'))} documents, found relevant content in {len(sorted_docs)} documents."
-       
-       return answer + coverage_info
+       return answer + coverage
        
    except Exception as e:
        return f"Error: {str(e)}"
