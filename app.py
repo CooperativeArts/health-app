@@ -71,32 +71,41 @@ def query():
         user_question = request.args.get('q', '')
         files = [f for f in os.listdir('docs') if f.endswith('.pdf')]
         
-        # Read content from all files
         all_text = ""
-        max_chars = 15000
+        max_chars = 30000  # Doubled the limit
 
+        # First pass: Get first page of each document
         for file in files:
             try:
                 reader = PdfReader(f'docs/{file}')
-                file_text = f"\n=== Document: {file} ===\n"
-                
-                # Get first 3 pages of each document
-                for i, page in enumerate(reader.pages[:3]):
-                    file_text += f"[Page {i+1}]: {page.extract_text()}\n"
-                    
-                all_text += file_text + "\n"
-                
-                # If we exceed max chars, keep the latest content
-                if len(all_text) > max_chars:
-                    all_text = all_text[-max_chars:]
+                if reader.pages:
+                    first_page = reader.pages[0].extract_text()
+                    all_text += f"\n=== Start of {file} ===\n"
+                    all_text += f"[Page 1]: {first_page}\n"
                     
             except Exception as e:
                 continue
+        
+        # If we have room, get more pages
+        if len(all_text) < max_chars:
+            for file in files:
+                try:
+                    reader = PdfReader(f'docs/{file}')
+                    if len(reader.pages) > 1:
+                        for i in range(1, min(3, len(reader.pages))):
+                            page_text = reader.pages[i].extract_text()
+                            if len(all_text) + len(page_text) < max_chars:
+                                all_text += f"=== More from {file} ===\n"
+                                all_text += f"[Page {i+1}]: {page_text}\n"
+                            else:
+                                break
+                except Exception as e:
+                    continue
 
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are analyzing PDF documents. Provide information only from the content shown. If you see a document name but no content, mention that."},
+                {"role": "system", "content": "You are analyzing PDF documents. Your task is to find and provide relevant information from these documents. Always mention which document and page number contains the information you reference."},
                 {"role": "user", "content": f"Documents content:\n{all_text}\n\nQuestion: {user_question}"}
             ],
             temperature=0
