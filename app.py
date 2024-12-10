@@ -252,7 +252,50 @@ def query():
         user_question = request.args.get('q', '')
         response_mode = request.args.get('mode', 'quick')
         
-        # [Previous initialization code remains the same until system prompt]
+        # Initialize components
+        query_processor = QueryProcessor()
+        doc_manager = DocumentManager('.')
+        
+        # Process the question - moved up
+        search_context = query_processor.process_question(user_question)
+        
+        # Determine which folders to search
+        folders_to_search = ['docs', 'operational_docs']
+        if search_context['entities'].get('client_ids') or search_context['entities'].get('names'):
+            folders_to_search.append('case_docs')
+        
+        # Collect relevant content
+        all_content = []
+        
+        for folder in folders_to_search:
+            folder_path = Path(folder)
+            if folder_path.exists():
+                for file_path in folder_path.rglob('*.pdf'):
+                    sections = doc_manager.scan_document(file_path, search_context)
+                    all_content.extend(sections)
+        
+        # Sort by relevance score
+        all_content.sort(key=lambda x: x.relevance_score, reverse=True)
+        
+        # Build context text
+        context_text = ""
+        total_chars = 0
+        max_chars = 20000
+        
+        for item in all_content:
+            section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
+            section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
+            section += f"{item.content}\n"
+            
+            if total_chars + len(section) <= max_chars:
+                context_text += section
+                total_chars += len(section)
+            else:
+                break
+        
+        if not context_text.strip():
+            return ("I couldn't find relevant information in the documents. "
+                   "Please try rephrasing your question or providing more context.")
         
         # Adjust system prompt based on response mode
         system_prompt_quick = """You are a Compliance and Risk Assistant providing quick, essential guidance. Focus on:
