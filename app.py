@@ -24,12 +24,27 @@ class DocumentSection:
 class EntityExtractor:
     def __init__(self):
         self.person_indicators = ['mother', 'father', 'child', 'worker', 'carer', 'guardian']
+        self.family_indicators = ['family', 'household', 'home']
         self.name_pattern = r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         entities = defaultdict(set)
         
-        # Extract names with roles
+        # Extract family names
+        for indicator in self.family_indicators:
+            # Match patterns like "Alias family" or "family Alias"
+            patterns = [
+                f"({self.name_pattern})\\s+{indicator}",
+                f"{indicator}\\s+({self.name_pattern})"
+            ]
+            for pattern in patterns:
+                matches = re.finditer(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    family_name = match.group(1)
+                    entities['family_names'].add(family_name)
+                    entities['names'].add(family_name)
+        
+        # Extract names with roles (existing code)
         for indicator in self.person_indicators:
             pattern = f"(?:{indicator}|{indicator.capitalize()})\\s+({self.name_pattern})"
             matches = re.finditer(pattern, text)
@@ -38,7 +53,7 @@ class EntityExtractor:
                 entities[indicator].add(name)
                 entities['names'].add(name)
         
-        # Extract standalone names (likely mentioned without roles)
+        # Extract standalone names (existing code)
         standalone_names = re.finditer(f"\\b{self.name_pattern}\\b", text)
         for match in standalone_names:
             name = match.group(0)
@@ -54,72 +69,6 @@ class EntityExtractor:
         return {k: list(v) for k, v in entities.items()}
 
 class DocumentManager:
-    def __init__(self, base_path: str):
-        self.base_path = Path(base_path)
-        self.entity_extractor = EntityExtractor()
-        self.document_cache = {}
-        
-    def get_document_type(self, path: Path) -> str:
-        if 'docs' == path.parent.name:
-            return "Policy"
-        elif 'operational_docs' in path.parts:
-            if 'forms' in path.parts:
-                return "Forms"
-            elif 'operational_guidelines' in path.parts:
-                return "Operational Guidelines"
-            return "Operational"
-        elif 'case_docs' in path.parts:
-            return "Case Files"
-        return "Unknown"
-    
-    def scan_document(self, file_path: Path, search_context: Dict[str, Any]) -> List[DocumentSection]:
-        try:
-            # Use cache if available
-            if str(file_path) in self.document_cache:
-                content = self.document_cache[str(file_path)]
-            else:
-                from pypdf import PdfReader
-                reader = PdfReader(str(file_path))
-                content = []
-                for page_num, page in enumerate(reader.pages):
-                    text = page.extract_text()
-                    if text.strip():
-                        content.append((page_num + 1, text))
-                self.document_cache[str(file_path)] = content
-
-            doc_type = self.get_document_type(file_path)
-            sections = []
-            
-            for page_num, text in content:
-                # Extract entities from the text
-                entities = self.entity_extractor.extract_entities(text)
-                
-                # Calculate relevance score based on multiple factors
-                score = self._calculate_relevance(
-                    text=text,
-                    search_terms=search_context['terms'],
-                    entities=entities,
-                    search_entities=search_context['entities'],
-                    doc_type=doc_type
-                )
-                
-                if score > 0:
-                    sections.append(DocumentSection(
-                        content=text,
-                        page=page_num,
-                        context=doc_type,
-                        document_path=str(file_path),
-                        document_name=file_path.name,
-                        relevance_score=score,
-                        entities=entities
-                    ))
-            
-            return sections
-            
-        except Exception as e:
-            print(f"Error reading {file_path}: {str(e)}")
-            return []
-    
     def _calculate_relevance(self, text: str, search_terms: List[str], 
                            entities: Dict[str, List[str]], 
                            search_entities: Dict[str, List[str]],
@@ -133,13 +82,22 @@ class DocumentManager:
         # Entity matching (weighted higher)
         for entity_type, search_names in search_entities.items():
             for name in search_names:
-                if name.lower() in text.lower():
-                    score += 2.0  # Weight entity matches higher
-                    # Additional boost for case files when matching names
-                    if doc_type == "Case Files":
-                        score += 1.0
+                name_lower = name.lower()
+                # Higher weight for exact family name matches
+                if entity_type == 'family_names' and name_lower in text.lower():
+                    score += 3.0  # Highest priority for family matches
+                elif name_lower in text.lower():
+                    score += 2.0
+                    
+                # Additional boost for case files
+                if doc_type == "Case Files":
+                    score += 1.5
         
-        # Context boost for operational documents when searching for procedures
+        # Context boost for risk-related content
+        if any(term in text.lower() for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
+            score += 2.0
+            
+        # Boost for operational documents when searching for procedures
         if doc_type in ["Operational Guidelines", "Forms"] and \
            any(term in ['procedure', 'form', 'guide', 'visit'] for term in search_terms):
             score += 1.5
@@ -147,16 +105,14 @@ class DocumentManager:
         return score
 
 class QueryProcessor:
-    def __init__(self):
-        self.entity_extractor = EntityExtractor()
-        
     def process_question(self, question: str) -> Dict[str, Any]:
         # Extract entities from the question
         entities = self.entity_extractor.extract_entities(question)
         
         # Extract search terms (excluding found entities and common words)
         common_words = {'what', 'is', 'are', 'in', 'the', 'and', 'or', 'to', 'a', 'an', 
-                       'about', 'how', 'can', 'do', 'does', 'visiting', 'need', 'know'}
+                       'about', 'how', 'can', 'do', 'does', 'visiting', 'need', 'know',
+                       'when', 'risks', 'risk'}
         
         # Add domain-specific terms
         terms = set()
@@ -166,7 +122,9 @@ class QueryProcessor:
                not any(word in str(e).lower() for e in entities.values()):
                 terms.add(word)
         
-        # Add context-specific terms based on question type
+        # Add context-specific terms
+        if 'risk' in question.lower() or 'risks' in question.lower():
+            terms.update(['risk', 'hazard', 'safety', 'danger', 'incident'])
         if 'visit' in question.lower():
             terms.update(['visit', 'assessment', 'safety', 'procedure'])
         
