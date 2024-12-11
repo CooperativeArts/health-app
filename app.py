@@ -32,7 +32,6 @@ class EntityExtractor:
         
         # Extract family names
         for indicator in self.family_indicators:
-            # Match patterns like "Alias family" or "family Alias"
             patterns = [
                 f"({self.name_pattern})\\s+{indicator}",
                 f"{indicator}\\s+({self.name_pattern})"
@@ -44,7 +43,7 @@ class EntityExtractor:
                     entities['family_names'].add(family_name)
                     entities['names'].add(family_name)
         
-        # Extract names with roles (existing code)
+        # Extract names with roles
         for indicator in self.person_indicators:
             pattern = f"(?:{indicator}|{indicator.capitalize()})\\s+({self.name_pattern})"
             matches = re.finditer(pattern, text)
@@ -53,7 +52,7 @@ class EntityExtractor:
                 entities[indicator].add(name)
                 entities['names'].add(name)
         
-        # Extract standalone names (existing code)
+        # Extract standalone names
         standalone_names = re.finditer(f"\\b{self.name_pattern}\\b", text)
         for match in standalone_names:
             name = match.group(0)
@@ -69,6 +68,71 @@ class EntityExtractor:
         return {k: list(v) for k, v in entities.items()}
 
 class DocumentManager:
+    def __init__(self):
+        self.entity_extractor = EntityExtractor()
+        self.document_cache = {}
+        
+    def get_document_type(self, path: Path) -> str:
+        if 'docs' == path.parent.name:
+            return "Policy"
+        elif 'operational_docs' in path.parts:
+            if 'forms' in path.parts:
+                return "Forms"
+            elif 'operational_guidelines' in path.parts:
+                return "Operational Guidelines"
+            return "Operational"
+        elif 'case_docs' in path.parts:
+            return "Case Files"
+        return "Unknown"
+    
+    def scan_document(self, file_path: Path, search_context: Dict[str, Any]) -> List[DocumentSection]:
+        try:
+            # Use cache if available
+            if str(file_path) in self.document_cache:
+                content = self.document_cache[str(file_path)]
+            else:
+                from pypdf import PdfReader
+                reader = PdfReader(str(file_path))
+                content = []
+                for page_num, page in enumerate(reader.pages):
+                    text = page.extract_text()
+                    if text.strip():
+                        content.append((page_num + 1, text))
+                self.document_cache[str(file_path)] = content
+
+            doc_type = self.get_document_type(file_path)
+            sections = []
+            
+            for page_num, text in content:
+                # Extract entities from the text
+                entities = self.entity_extractor.extract_entities(text)
+                
+                # Calculate relevance score based on multiple factors
+                score = self._calculate_relevance(
+                    text=text,
+                    search_terms=search_context['terms'],
+                    entities=entities,
+                    search_entities=search_context['entities'],
+                    doc_type=doc_type
+                )
+                
+                if score > 0:
+                    sections.append(DocumentSection(
+                        content=text,
+                        page=page_num,
+                        context=doc_type,
+                        document_path=str(file_path),
+                        document_name=file_path.name,
+                        relevance_score=score,
+                        entities=entities
+                    ))
+            
+            return sections
+            
+        except Exception as e:
+            print(f"Error reading {file_path}: {str(e)}")
+            return []
+    
     def _calculate_relevance(self, text: str, search_terms: List[str], 
                            entities: Dict[str, List[str]], 
                            search_entities: Dict[str, List[str]],
@@ -105,6 +169,9 @@ class DocumentManager:
         return score
 
 class QueryProcessor:
+    def __init__(self):
+        self.entity_extractor = EntityExtractor()
+    
     def process_question(self, question: str) -> Dict[str, Any]:
         # Extract entities from the question
         entities = self.entity_extractor.extract_entities(question)
@@ -212,9 +279,9 @@ def query():
         
         # Initialize components
         query_processor = QueryProcessor()
-        doc_manager = DocumentManager('.')
+        doc_manager = DocumentManager()
         
-        # Process the question - moved up
+        # Process the question
         search_context = query_processor.process_question(user_question)
         
         # Determine which folders to search
