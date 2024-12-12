@@ -323,13 +323,15 @@ def query():
                    "Please try rephrasing your question or providing more context.")
         
         # Adjust system prompt based on response mode
-        system_prompt_quick = """You are a Compliance and Risk Assistant providing quick, essential guidance. Focus on:
-1. Immediate actions needed
-2. Key safety requirements
-3. Critical procedural steps
-4. Essential policy points
+        system_prompt_quick = """You are a Compliance and Risk Assistant providing quick, essential guidance. When discussing specific families or clients:
+1. List ONLY the most critical family-specific risks (maximum 3-4 points)
+2. List ONLY the most crucial safety requirements for those specific risks
+3. Be direct and specific - no generic advice
+4. Keep each point to one line
+5. Total response should be no more than 6-8 lines
+6. Do not include general safety protocols unless directly relevant to the identified risks
 
-Keep responses concise and action-oriented. Only reference specific documents if crucial."""
+Remember: Quick doesn't mean generic - focus on the most important specific risks for this family/client."""
 
         system_prompt_detailed = """You are a Compliance and Risk Assistant analyzing documents from different contexts:
 - Policy Documents: Official policies and frameworks
@@ -347,8 +349,9 @@ Important guidelines:
 8. For visits, always check both operational guidelines and client-specific requirements"""
 
         # Choose appropriate system prompt
+        # Choose appropriate system prompt
         system_prompt = system_prompt_quick if response_mode == 'quick' else system_prompt_detailed
-        
+
         # Add entity context if in detailed mode or if safety-critical entities found
         if response_mode == 'detailed' or any(
             entity_type in search_context['entities'] 
@@ -359,12 +362,25 @@ Important guidelines:
                 if values:
                     system_prompt += f"\n- {entity_type}: {', '.join(values)}"
 
-        # Modify user prompt based on mode
-        user_prompt_quick = f"""Question: {user_question}
+        # Build appropriate prompt based on mode
+        if response_mode == 'quick':
+            # For quick mode, only include critical risk sections
+            quick_context = ""
+            for item in all_content:
+                if any(term in item.content.lower() for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
+                    quick_context += f"{item.content}\n"
+                    if len(quick_context) > 2000:  # Limit context size for quick mode
+                        break
+            
+            user_prompt = f"""Question: {user_question}
 
-Provide only the essential information needed for immediate action. Focus on safety, required steps, and critical policies."""
+Extract only the most critical risks and specific safety requirements from the case files. Focus on family-specific risks only, not generic safety protocols. Keep it extremely concise but specific to this family/client.
 
-        user_prompt_detailed = f"""Question: {user_question}
+Here are relevant risk sections:
+
+{quick_context}"""
+        else:
+            user_prompt = f"""Question: {user_question}
 
 Here are relevant sections from multiple documents:
 
@@ -377,7 +393,7 @@ Provide a detailed answer that synthesizes information from all relevant sources
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt_quick if response_mode == 'quick' else user_prompt_detailed}
+                {"role": "user", "content": user_prompt}
             ],
             temperature=0,
             request_timeout=30
