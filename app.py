@@ -208,25 +208,69 @@ HTML_TEMPLATE = '''
     <style>
         body { max-width: 800px; margin: auto; padding: 20px; font-family: Arial, sans-serif; }
         #chat-box { height: 400px; border: 1px solid #ccc; overflow-y: scroll; margin: 20px 0; padding: 10px; }
-        .mode-toggle { margin-bottom: 10px; }
-        .mode-toggle label { margin-right: 15px; }
-        input[type="text"] { width: 80%; padding: 10px; }
-        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        .controls { margin-bottom: 20px; }
+        .response-type { margin-bottom: 10px; }
+        .response-type label { 
+            display: inline-block;
+            padding: 8px 16px;
+            margin-right: 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .response-type input[type="radio"]:checked + label {
+            background-color: #007bff;
+            color: white;
+            border-color: #0056b3;
+        }
+        .response-type input[type="radio"] { display: none; }
+        .detail-level { margin-bottom: 10px; }
+        select { 
+            padding: 8px;
+            margin-left: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        input[type="text"] { 
+            width: 80%; 
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button { 
+            padding: 10px 20px; 
+            background-color: #007bff; 
+            color: white; 
+            border: none;
+            border-radius: 4px;
+            cursor: pointer; 
+        }
         button:disabled { background-color: #ccc; }
         .loading { color: #666; }
         .error { color: red; }
-        .source { color: #666; font-size: 0.9em; margin-top: 5px; }
     </style>
 </head>
 <body>
     <h1>Compliance and Risk Assistant</h1>
-    <div class="mode-toggle">
-        <label>
-            <input type="radio" name="mode" value="quick" checked> Quick Response
-        </label>
-        <label>
-            <input type="radio" name="mode" value="detailed"> Detailed Response
-        </label>
+    <div class="controls">
+        <div class="response-type">
+            <input type="radio" id="risk" name="type" value="risk" checked>
+            <label for="risk">Risk Assessment</label>
+            
+            <input type="radio" id="operational" name="type" value="operational">
+            <label for="operational">Operational Requirements</label>
+            
+            <input type="radio" id="family" name="type" value="family">
+            <label for="family">Family Information</label>
+        </div>
+        <div class="detail-level">
+            <label>Detail Level:</label>
+            <select id="detail-level">
+                <option value="concise">Concise</option>
+                <option value="detailed">Detailed</option>
+            </select>
+        </div>
     </div>
     <div id="chat-box"></div>
     <form id="chat-form">
@@ -238,7 +282,8 @@ HTML_TEMPLATE = '''
             e.preventDefault();
             const chatBox = document.getElementById('chat-box');
             const question = document.getElementById('question').value;
-            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const type = document.querySelector('input[name="type"]:checked').value;
+            const detail = document.getElementById('detail-level').value;
             const submitBtn = document.getElementById('submit-btn');
             
             submitBtn.disabled = true;
@@ -247,7 +292,8 @@ HTML_TEMPLATE = '''
             chatBox.scrollTop = chatBox.scrollHeight;
             
             try {
-                const response = await fetch('/query?q=' + encodeURIComponent(question) + '&mode=' + mode);
+                const response = await fetch('/query?q=' + encodeURIComponent(question) + 
+                                          '&type=' + type + '&detail=' + detail);
                 const answer = await response.text();
                 chatBox.removeChild(chatBox.lastChild);
                 chatBox.innerHTML += '<p><b>A:</b> ' + answer + '</p>';
@@ -275,7 +321,8 @@ def query():
         load_dotenv()
         openai.api_key = os.getenv('OPENAI_API_KEY')
         user_question = request.args.get('q', '')
-        response_mode = request.args.get('mode', 'quick')
+        response_type = request.args.get('type', 'risk')
+        detail_level = request.args.get('detail', 'concise')
         
         # Initialize components
         query_processor = QueryProcessor()
@@ -305,7 +352,7 @@ def query():
         # Build context text
         context_text = ""
         total_chars = 0
-        max_chars = 20000
+        max_chars = 20000 if detail_level == 'detailed' else 2000
         
         for item in all_content:
             section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
@@ -321,72 +368,86 @@ def query():
         if not context_text.strip():
             return ("I couldn't find relevant information in the documents. "
                    "Please try rephrasing your question or providing more context.")
-        
-        # Adjust system prompt based on response mode
-        system_prompt_quick = """You are a Compliance and Risk Assistant providing quick, essential guidance. When discussing specific families or clients:
-1. List ONLY the most critical family-specific risks (maximum 3-4 points)
-2. List ONLY the most crucial safety requirements for those specific risks
+
+        # Define system prompts for each type and detail level
+        system_prompts = {
+            'risk': {
+                'concise': """You are a Risk Assessment Assistant. Focus on:
+1. The most critical family-specific risks (maximum 3-4 points)
+2. The most crucial safety requirements for those specific risks
 3. Be direct and specific - no generic advice
+4. Keep each risk/requirement to one line
+5. Total response should be no more than 6-8 lines
+
+Remember: Focus on the most urgent and serious risks specific to this family.""",
+
+                'detailed': """You are a Risk Assessment Assistant analyzing safety concerns:
+1. List ALL identified risks from the documents
+2. Categorize risks (e.g., immediate safety, long-term, environmental)
+3. For each risk, provide:
+   - Source of information (document and page)
+   - Context and severity
+   - Recommended mitigation strategies
+4. Connect risks to relevant policies and procedures
+5. Identify any gaps in risk assessment"""
+            },
+            'operational': {
+                'concise': """You are an Operational Compliance Assistant. Focus on:
+1. Required documents status (present/missing)
+2. Critical procedural requirements
+3. Immediate compliance actions needed
 4. Keep each point to one line
 5. Total response should be no more than 6-8 lines
-6. Do not include general safety protocols unless directly relevant to the identified risks
 
-Remember: Quick doesn't mean generic - focus on the most important specific risks for this family/client."""
+Remember: Focus on immediate operational requirements and missing documentation.""",
 
-        system_prompt_detailed = """You are a Compliance and Risk Assistant analyzing documents from different contexts:
-- Policy Documents: Official policies and frameworks
-- Operational Guidelines: Practical procedures and forms
-- Case Files: Client-specific information and assessments
+                'detailed': """You are an Operational Compliance Assistant reviewing requirements:
+1. List all required documents and their status
+2. Detail specific procedural requirements from guidelines
+3. Quote relevant sections of operational procedures
+4. Identify any compliance gaps
+5. Provide step-by-step guidance for meeting requirements
+6. Reference specific policies and procedures"""
+            },
+            'family': {
+                'concise': """You are a Family Information Assistant. Focus on:
+1. Key family members and their relationships
+2. Current living situation
+3. Primary concerns or needs
+4. Keep each point to one line
+5. Total response should be no more than 6-8 lines
 
-Important guidelines:
-1. Always specify which type of document and page contains your information
-2. When answering operational questions, reference both policies and procedures
-3. For case-specific questions, connect client information with relevant policies
-4. Quote relevant text when appropriate
-5. If information seems missing, mention what should be checked
-6. Focus on compliance and risk management
-7. When names are mentioned, clarify their role (e.g., client, worker, family member)
-8. For visits, always check both operational guidelines and client-specific requirements"""
+Remember: Provide essential family context for referrals or case planning.""",
 
-        # Choose appropriate system prompt
-        # Choose appropriate system prompt
-        system_prompt = system_prompt_quick if response_mode == 'quick' else system_prompt_detailed
+                'detailed': """You are a Family Information Assistant analyzing case files:
+1. Provide comprehensive family composition and relationships
+2. Detail chronological history of engagement
+3. List all assessed needs and strengths
+4. Include relevant quotes from assessments
+5. Summarize current case plan and goals
+6. Note any gaps in family information
+7. Reference specific assessments and case notes"""
+            }
+        }
 
-        # Add entity context if in detailed mode or if safety-critical entities found
-        if response_mode == 'detailed' or any(
-            entity_type in search_context['entities'] 
-            for entity_type in ['client_ids', 'child', 'mother', 'father']
-        ):
+        # Get appropriate system prompt
+        system_prompt = system_prompts[response_type][detail_level]
+
+        # Add entity context if entities are found
+        if search_context['entities']:
             system_prompt += "\n\nRelevant entities in question:"
             for entity_type, values in search_context['entities'].items():
                 if values:
                     system_prompt += f"\n- {entity_type}: {', '.join(values)}"
 
-        # Build appropriate prompt based on mode
-        if response_mode == 'quick':
-            # For quick mode, only include critical risk sections
-            quick_context = ""
-            for item in all_content:
-                if any(term in item.content.lower() for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
-                    quick_context += f"{item.content}\n"
-                    if len(quick_context) > 2000:  # Limit context size for quick mode
-                        break
-            
-            user_prompt = f"""Question: {user_question}
+        # Build appropriate user prompt
+        user_prompt = f"""Question: {user_question}
 
-Extract only the most critical risks and specific safety requirements from the case files. Focus on family-specific risks only, not generic safety protocols. Keep it extremely concise but specific to this family/client.
-
-Here are relevant risk sections:
-
-{quick_context}"""
-        else:
-            user_prompt = f"""Question: {user_question}
-
-Here are relevant sections from multiple documents:
+Here are relevant sections from documents:
 
 {context_text}
 
-Provide a detailed answer that synthesizes information from all relevant sources. Consider policy requirements, operational procedures, and any case-specific details. If this involves a visit or client interaction, be sure to highlight safety and procedural requirements."""
+Provide a {detail_level} response focusing on {response_type} aspects."""
 
         # Analyze with GPT-4
         response = openai.ChatCompletion.create(
@@ -401,8 +462,8 @@ Provide a detailed answer that synthesizes information from all relevant sources
         
         answer = response.choices[0].message['content']
         
-        # Add minimal coverage info for quick mode
-        if response_mode == 'quick':
+        # Add minimal coverage info for concise mode
+        if detail_level == 'concise':
             coverage_info = "\n\nBased on relevant policy and operational documents."
         else:
             coverage_info = (f"\n\nDocument Coverage: Searched {len(list(Path('docs').glob('*.pdf')))} policy documents, "
