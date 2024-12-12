@@ -71,6 +71,14 @@ class DocumentManager:
     def __init__(self):
         self.entity_extractor = EntityExtractor()
         self.document_cache = {}
+        # New: Add required documents definition
+        self.required_documents = {
+            'consent': ['consent_form', 'consent forms', 'signed consent'],
+            'privacy': ['privacy form', 'privacy statement', 'privacy consent'],
+            'rights': ['rights and responsibilities', 'client rights'],
+            'risk_assessment': ['risk assessment', 'risk matrix'],
+            'intake': ['intake form', 'intake assessment']
+        }
         
     def get_document_type(self, path: Path) -> str:
         if 'docs' == path.parent.name:
@@ -84,6 +92,21 @@ class DocumentManager:
         elif 'case_docs' in path.parts:
             return "Case Files"
         return "Unknown"
+    
+    # New: Add method to check for missing documents
+    def check_missing_documents(self, all_content: List[DocumentSection]) -> Dict[str, bool]:
+        found_documents = defaultdict(bool)
+        
+        # Check each document section for required documents
+        for section in all_content:
+            content_lower = section.content.lower()
+            for doc_type, keywords in self.required_documents.items():
+                if any(keyword in content_lower for keyword in keywords):
+                    found_documents[doc_type] = True
+        
+        # Return status of all required documents
+        return {doc_type: found_documents.get(doc_type, False) 
+                for doc_type in self.required_documents.keys()}
     
     def scan_document(self, file_path: Path, search_context: Dict[str, Any]) -> List[DocumentSection]:
         try:
@@ -349,11 +372,22 @@ def query():
         # Sort by relevance score
         all_content.sort(key=lambda x: x.relevance_score, reverse=True)
         
+        # New: Check for missing documents
+        missing_docs = doc_manager.check_missing_documents(all_content)
+        
         # Build context text
         context_text = ""
         total_chars = 0
         max_chars = 20000 if detail_level == 'detailed' else 2000
         
+        # New: Add missing documents to context for operational queries
+        if response_type == 'operational':
+            missing_list = [doc_type.replace('_', ' ').title() for doc_type, found in missing_docs.items() 
+                          if not found]
+            if missing_list:
+                context_text = "MISSING REQUIRED DOCUMENTS:\n- " + "\n- ".join(missing_list) + "\n\n"
+        
+        # Add document content to context
         for item in all_content:
             section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
             section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
@@ -392,22 +426,33 @@ Remember: Focus on the most urgent and serious risks specific to this family."""
 5. Identify any gaps in risk assessment"""
             },
             'operational': {
-                'concise': """You are an Operational Compliance Assistant. Focus on:
-1. Required documents status (present/missing)
-2. Critical procedural requirements
-3. Immediate compliance actions needed
-4. Keep each point to one line
-5. Total response should be no more than 6-8 lines
+                'concise': """You are an Operational Compliance Assistant. Your primary focus is on missing or incomplete documentation.
 
-Remember: Focus on immediate operational requirements and missing documentation.""",
+1. FIRST check for required documents:
+   - Consent Form (mandatory)
+   - Privacy Form (mandatory)
+   - Rights and Responsibilities Form
+   - Risk Assessment
+   - Intake Form
+2. List ANY missing required documents first
+3. Then list critical procedural requirements
+4. Keep each point to one line
+
+Remember: Always state explicitly which required documents are missing.""",
 
                 'detailed': """You are an Operational Compliance Assistant reviewing requirements:
-1. List all required documents and their status
-2. Detail specific procedural requirements from guidelines
-3. Quote relevant sections of operational procedures
-4. Identify any compliance gaps
-5. Provide step-by-step guidance for meeting requirements
-6. Reference specific policies and procedures"""
+1. First and foremost, check for required documentation:
+   - Consent Form (mandatory)
+   - Privacy Form (mandatory)
+   - Rights and Responsibilities Form
+   - Risk Assessment
+   - Intake Form
+2. Explicitly state which required documents are missing or not found
+3. Quote relevant sections from operational guidelines about required documentation
+4. Detail consequences of missing documentation
+5. Provide step-by-step guidance for obtaining missing documents
+6. List any other compliance gaps
+7. Reference specific policies and procedures"""
             },
             'family': {
                 'concise': """You are a Family Information Assistant. Focus on:
