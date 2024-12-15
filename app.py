@@ -71,14 +71,86 @@ class DocumentManager:
     def __init__(self):
         self.entity_extractor = EntityExtractor()
         self.document_cache = {}
-        # New: Add required documents definition
-        self.required_documents = {
-            'consent': ['consent_form', 'consent forms', 'signed consent'],
-            'privacy': ['privacy form', 'privacy statement', 'privacy consent'],
-            'rights': ['rights and responsibilities', 'client rights'],
-            'risk_assessment': ['risk assessment', 'risk matrix'],
-            'intake': ['intake form', 'intake assessment']
+        self.required_documents = self._load_document_requirements()
+    
+    def _load_document_requirements(self) -> Dict[str, Dict[str, Any]]:
+        """Load required documents from operational guidelines"""
+        base_requirements = {
+            'consent': {
+                'keywords': ['consent form', 'consent document', 'signed consent'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Client consent form'
+            },
+            'privacy': {
+                'keywords': ['privacy form', 'privacy statement', 'privacy acknowledgment'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Privacy statement and acknowledgment'
+            },
+            'intake': {
+                'keywords': ['intake form', 'intake assessment', 'initial assessment'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Client intake form'
+            },
+            'rights': {
+                'keywords': ['rights and responsibilities', 'client rights', 'responsibilities form'],
+                'mandatory': False,
+                'found_in': None,
+                'description': 'Rights and responsibilities acknowledgment'
+            },
+            'risk_assessment': {
+                'keywords': ['risk assessment form', 'risk matrix', 'safety assessment'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Safety and risk assessment'
+            }
         }
+        
+        try:
+            # Search operational guidelines for document requirements
+            op_guidelines_path = Path('operational_docs/operational_guidelines')
+            if op_guidelines_path.exists():
+                for file_path in op_guidelines_path.rglob('*.pdf'):
+                    if 'privacy' in file_path.name.lower() or 'consent' in file_path.name.lower():
+                        from pypdf import PdfReader
+                        reader = PdfReader(str(file_path))
+                        for page in reader.pages:
+                            text = page.extract_text().lower()
+                            # Look for sections describing required documents
+                            if 'required document' in text or 'mandatory form' in text:
+                                # Parse requirements and update base_requirements
+                                # [Add detailed parsing logic here based on your guidelines format]
+                                pass
+        except Exception as e:
+            print(f"Error loading document requirements: {str(e)}")
+        
+        return base_requirements
+
+    def check_missing_documents(self, all_content: List[DocumentSection]) -> Dict[str, Dict[str, Any]]:
+        document_status = {}
+        
+        # Check each required document
+        for doc_type, details in self.required_documents.items():
+            status = {
+                'found': False,
+                'mandatory': details['mandatory'],
+                'description': details['description'],
+                'found_in': None
+            }
+            
+            # Check content for keywords
+            for section in all_content:
+                content_lower = section.content.lower()
+                if any(keyword in content_lower for keyword in details['keywords']):
+                    status['found'] = True
+                    status['found_in'] = section.document_name
+                    break
+            
+            document_status[doc_type] = status
+        
+        return document_status
         
     def get_document_type(self, path: Path) -> str:
         if 'docs' == path.parent.name:
@@ -92,21 +164,6 @@ class DocumentManager:
         elif 'case_docs' in path.parts:
             return "Case Files"
         return "Unknown"
-    
-    # New: Add method to check for missing documents
-    def check_missing_documents(self, all_content: List[DocumentSection]) -> Dict[str, bool]:
-        found_documents = defaultdict(bool)
-        
-        # Check each document section for required documents
-        for section in all_content:
-            content_lower = section.content.lower()
-            for doc_type, keywords in self.required_documents.items():
-                if any(keyword in content_lower for keyword in keywords):
-                    found_documents[doc_type] = True
-        
-        # Return status of all required documents
-        return {doc_type: found_documents.get(doc_type, False) 
-                for doc_type in self.required_documents.keys()}
     
     def scan_document(self, file_path: Path, search_context: Dict[str, Any]) -> List[DocumentSection]:
         try:
@@ -372,7 +429,7 @@ def query():
         # Sort by relevance score
         all_content.sort(key=lambda x: x.relevance_score, reverse=True)
         
-        # New: Check for missing documents
+        # Check for missing documents
         missing_docs = doc_manager.check_missing_documents(all_content)
         
         # Build context text
@@ -380,7 +437,7 @@ def query():
         total_chars = 0
         max_chars = 20000 if detail_level == 'detailed' else 2000
         
-        # New: Add missing documents to context for operational queries
+        # Add missing documents to context for operational queries
         if response_type == 'operational':
             missing_list = [doc_type.replace('_', ' ').title() for doc_type, found in missing_docs.items() 
                           if not found]
@@ -455,23 +512,30 @@ Remember: Always state explicitly which required documents are missing.""",
 7. Reference specific policies and procedures"""
             },
             'family': {
-                'concise': """You are a Family Information Assistant. Focus on:
-1. Key family members and their relationships
-2. Current living situation
-3. Primary concerns or needs
-4. Keep each point to one line
-5. Total response should be no more than 6-8 lines
+                'concise': """You are a Family Information Assistant. Follow these rules strictly:
+1. ONLY provide information that is explicitly about the named family/person
+2. Do not include any quotes or information unless they are specifically from/about the named person
+3. If you see names that don't match the request, exclude that information entirely
+4. If unsure if information belongs to this family, omit it
+5. Keep each point to one line
+6. Maximum 6-8 lines total
 
-Remember: Provide essential family context for referrals or case planning.""",
+Remember: Better to provide less information than to mix up different families.""",
 
-                'detailed': """You are a Family Information Assistant analyzing case files:
-1. Provide comprehensive family composition and relationships
-2. Detail chronological history of engagement
-3. List all assessed needs and strengths
-4. Include relevant quotes from assessments
-5. Summarize current case plan and goals
-6. Note any gaps in family information
-7. Reference specific assessments and case notes"""
+                'detailed': """You are a Family Information Assistant. Follow these rules strictly:
+1. ONLY provide information from documents that explicitly name this specific family
+2. Cross-reference every piece of information to ensure it's about the correct family
+3. Never mix quotes or information from different families
+4. If a document mentions other names, completely exclude that section
+5. Organize confirmed information into:
+   - Family composition (only if explicitly stated)
+   - Current situation (only if clearly about this family)
+   - Key concerns (must be specifically linked to this family)
+   - Available services (must be currently engaged with this family)
+6. If you're not 100% certain information belongs to this family, exclude it
+7. Note any gaps in information rather than filling in with uncertain details
+
+Remember: Accuracy is more important than completeness. Never combine information from different families."""
             }
         }
 
