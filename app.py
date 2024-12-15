@@ -74,38 +74,39 @@ class DocumentManager:
         self.required_documents = self._load_document_requirements()
     
     def _load_document_requirements(self) -> Dict[str, Dict[str, Any]]:
-    base_requirements = {
-        'consent': {
-            'keywords': ['consent form', 'consent document', 'signed consent', 'client consent'],
-            'mandatory': True,
-            'found_in': None,
-            'description': 'Client consent form'
-        },
-        'privacy': {
-            'keywords': ['privacy form', 'privacy statement', 'privacy acknowledgment', 'privacy consent'],
-            'mandatory': True,
-            'found_in': None,
-            'description': 'Privacy statement and acknowledgment'
-        },
-        'intake': {
-            'keywords': ['intake form', 'intake assessment', 'initial assessment', 'intake_form'],
-            'mandatory': True,
-            'found_in': None,
-            'description': 'Client intake form'
-        },
-        'rights': {
-            'keywords': ['rights and responsibilities', 'client rights', 'responsibilities form', 'rights form'],
-            'mandatory': False,
-            'found_in': None,
-            'description': 'Rights and responsibilities acknowledgment'
-        },
-        'risk_assessment': {
-            'keywords': ['risk assessment', 'risk matrix', 'safety assessment', 'risk_assessment', 'best_interest'],
-            'mandatory': True,
-            'found_in': None,
-            'description': 'Safety and risk assessment'
+        """Load required documents from operational guidelines"""
+        base_requirements = {
+            'consent': {
+                'keywords': ['consent form', 'consent document', 'signed consent', 'client consent'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Client consent form'
+            },
+            'privacy': {
+                'keywords': ['privacy form', 'privacy statement', 'privacy acknowledgment', 'privacy consent'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Privacy statement and acknowledgment'
+            },
+            'intake': {
+                'keywords': ['intake form', 'intake assessment', 'initial assessment', 'intake_form'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Client intake form'
+            },
+            'rights': {
+                'keywords': ['rights and responsibilities', 'client rights', 'responsibilities form', 'rights form'],
+                'mandatory': False,
+                'found_in': None,
+                'description': 'Rights and responsibilities acknowledgment'
+            },
+            'risk_assessment': {
+                'keywords': ['risk assessment', 'risk matrix', 'safety assessment', 'risk_assessment', 'best_interest'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Safety and risk assessment'
+            }
         }
-    }
         
         try:
             # Search operational guidelines for document requirements
@@ -241,17 +242,17 @@ class DocumentManager:
             # Additional boost for case files
             if doc_type == "Case Files":
                 score += 1.5
+    
+    # Context boost for risk-related content - FIXED INDENTATION
+    if any(term in text_lower for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
+        score += 2.0
         
-        # Context boost for risk-related content
-        if any(term in text.lower() for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
-            score += 2.0
-            
-        # Boost for operational documents when searching for procedures
-        if doc_type in ["Operational Guidelines", "Forms"] and \
-           any(term in ['procedure', 'form', 'guide', 'visit'] for term in search_terms):
-            score += 1.5
-            
-        return score
+    # Boost for operational documents when searching for procedures - FIXED INDENTATION
+    if doc_type in ["Operational Guidelines", "Forms"] and \
+       any(term in ['procedure', 'form', 'guide', 'visit'] for term in search_terms):
+        score += 1.5
+        
+    return score  # FIXED INDENTATION
 
 class QueryProcessor:
     def __init__(self):
