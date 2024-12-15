@@ -74,39 +74,38 @@ class DocumentManager:
         self.required_documents = self._load_document_requirements()
     
     def _load_document_requirements(self) -> Dict[str, Dict[str, Any]]:
-        """Load required documents from operational guidelines"""
-        base_requirements = {
-            'consent': {
-                'keywords': ['consent form', 'consent document', 'signed consent'],
-                'mandatory': True,
-                'found_in': None,
-                'description': 'Client consent form'
-            },
-            'privacy': {
-                'keywords': ['privacy form', 'privacy statement', 'privacy acknowledgment'],
-                'mandatory': True,
-                'found_in': None,
-                'description': 'Privacy statement and acknowledgment'
-            },
-            'intake': {
-                'keywords': ['intake form', 'intake assessment', 'initial assessment'],
-                'mandatory': True,
-                'found_in': None,
-                'description': 'Client intake form'
-            },
-            'rights': {
-                'keywords': ['rights and responsibilities', 'client rights', 'responsibilities form'],
-                'mandatory': False,
-                'found_in': None,
-                'description': 'Rights and responsibilities acknowledgment'
-            },
-            'risk_assessment': {
-                'keywords': ['risk assessment form', 'risk matrix', 'safety assessment'],
-                'mandatory': True,
-                'found_in': None,
-                'description': 'Safety and risk assessment'
-            }
+    base_requirements = {
+        'consent': {
+            'keywords': ['consent form', 'consent document', 'signed consent', 'client consent'],
+            'mandatory': True,
+            'found_in': None,
+            'description': 'Client consent form'
+        },
+        'privacy': {
+            'keywords': ['privacy form', 'privacy statement', 'privacy acknowledgment', 'privacy consent'],
+            'mandatory': True,
+            'found_in': None,
+            'description': 'Privacy statement and acknowledgment'
+        },
+        'intake': {
+            'keywords': ['intake form', 'intake assessment', 'initial assessment', 'intake_form'],
+            'mandatory': True,
+            'found_in': None,
+            'description': 'Client intake form'
+        },
+        'rights': {
+            'keywords': ['rights and responsibilities', 'client rights', 'responsibilities form', 'rights form'],
+            'mandatory': False,
+            'found_in': None,
+            'description': 'Rights and responsibilities acknowledgment'
+        },
+        'risk_assessment': {
+            'keywords': ['risk assessment', 'risk matrix', 'safety assessment', 'risk_assessment', 'best_interest'],
+            'mandatory': True,
+            'found_in': None,
+            'description': 'Safety and risk assessment'
         }
+    }
         
         try:
             # Search operational guidelines for document requirements
@@ -214,28 +213,34 @@ class DocumentManager:
             return []
     
     def _calculate_relevance(self, text: str, search_terms: List[str], 
-                           entities: Dict[str, List[str]], 
-                           search_entities: Dict[str, List[str]],
-                           doc_type: str) -> float:
-        score = 0.0
-        
-        # Term matching
-        term_matches = sum(term.lower() in text.lower() for term in search_terms)
-        score += term_matches * 1.0
-        
-        # Entity matching (weighted higher)
-        for entity_type, search_names in search_entities.items():
-            for name in search_names:
-                name_lower = name.lower()
-                # Higher weight for exact family name matches
-                if entity_type == 'family_names' and name_lower in text.lower():
-                    score += 3.0  # Highest priority for family matches
-                elif name_lower in text.lower():
+                       entities: Dict[str, List[str]], 
+                       search_entities: Dict[str, List[str]],
+                       doc_type: str) -> float:
+    score = 0.0
+    
+    # Term matching (case insensitive)
+    text_lower = text.lower()
+    term_matches = sum(term.lower() in text_lower for term in search_terms)
+    score += term_matches * 1.0
+    
+    # Entity matching (weighted higher and case insensitive)
+    for entity_type, search_names in search_entities.items():
+        for name in search_names:
+            name_lower = name.lower()
+            # Higher weight for exact family name matches
+            if entity_type == 'family_names' and name_lower in text_lower:
+                score += 3.0  # Highest priority for family matches
+                # Extra boost if name appears near case-related terms
+                if any(term in text_lower[max(0, text_lower.find(name_lower)-50):
+                                       min(len(text_lower), text_lower.find(name_lower)+50)] 
+                       for term in ['client', 'case', 'family', 'mother', 'father', 'child']):
                     score += 2.0
-                    
-                # Additional boost for case files
-                if doc_type == "Case Files":
-                    score += 1.5
+            elif name_lower in text_lower:
+                score += 2.0
+                
+            # Additional boost for case files
+            if doc_type == "Case Files":
+                score += 1.5
         
         # Context boost for risk-related content
         if any(term in text.lower() for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
@@ -435,7 +440,7 @@ def query():
         # Build context text
         context_text = ""
         total_chars = 0
-        max_chars = 20000 if detail_level == 'detailed' else 2000
+        max_chars = 10000 if detail_level == 'detailed' else 2000  # Reduced from 20000
         
         # Add missing documents to context for operational queries
         if response_type == 'operational':
