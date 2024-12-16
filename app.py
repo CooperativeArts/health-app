@@ -214,45 +214,45 @@ class DocumentManager:
             return []
     
     def _calculate_relevance(self, text: str, search_terms: List[str], 
-                       entities: Dict[str, List[str]], 
-                       search_entities: Dict[str, List[str]],
-                       doc_type: str) -> float:
-    score = 0.0
-    
-    # Term matching (case insensitive)
-    text_lower = text.lower()
-    term_matches = sum(term.lower() in text_lower for term in search_terms)
-    score += term_matches * 1.0
-    
-    # Entity matching (weighted higher and case insensitive)
-    for entity_type, search_names in search_entities.items():
-        for name in search_names:
-            name_lower = name.lower()
-            # Higher weight for exact family name matches
-            if entity_type == 'family_names' and name_lower in text_lower:
-                score += 3.0  # Highest priority for family matches
-                # Extra boost if name appears near case-related terms
-                if any(term in text_lower[max(0, text_lower.find(name_lower)-50):
-                                       min(len(text_lower), text_lower.find(name_lower)+50)] 
-                       for term in ['client', 'case', 'family', 'mother', 'father', 'child']):
+                           entities: Dict[str, List[str]], 
+                           search_entities: Dict[str, List[str]],
+                           doc_type: str) -> float:
+        score = 0.0
+        
+        # Term matching (case insensitive)
+        text_lower = text.lower()
+        term_matches = sum(term.lower() in text_lower for term in search_terms)
+        score += term_matches * 1.0
+        
+        # Entity matching (weighted higher and case insensitive)
+        for entity_type, search_names in search_entities.items():
+            for name in search_names:
+                name_lower = name.lower()
+                # Higher weight for exact family name matches
+                if entity_type == 'family_names' and name_lower in text_lower:
+                    score += 3.0  # Highest priority for family matches
+                    # Extra boost if name appears near case-related terms
+                    if any(term in text_lower[max(0, text_lower.find(name_lower)-50):
+                                           min(len(text_lower), text_lower.find(name_lower)+50)] 
+                           for term in ['client', 'case', 'family', 'mother', 'father', 'child']):
+                        score += 2.0
+                elif name_lower in text_lower:
                     score += 2.0
-            elif name_lower in text_lower:
-                score += 2.0
-                
-            # Additional boost for case files
-            if doc_type == "Case Files":
-                score += 1.5
-    
-    # Context boost for risk-related content - FIXED INDENTATION
-    if any(term in text_lower for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
-        score += 2.0
+                    
+                # Additional boost for case files
+                if doc_type == "Case Files":
+                    score += 1.5
         
-    # Boost for operational documents when searching for procedures - FIXED INDENTATION
-    if doc_type in ["Operational Guidelines", "Forms"] and \
-       any(term in ['procedure', 'form', 'guide', 'visit'] for term in search_terms):
-        score += 1.5
-        
-    return score  # FIXED INDENTATION
+        # Context boost for risk-related content
+        if any(term in text_lower for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
+            score += 2.0
+            
+        # Boost for operational documents when searching for procedures
+        if doc_type in ["Operational Guidelines", "Forms"] and \
+           any(term in ['procedure', 'form', 'guide', 'visit'] for term in search_terms):
+            score += 1.5
+            
+        return score
 
 class QueryProcessor:
     def __init__(self):
