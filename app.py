@@ -24,8 +24,7 @@ class DocumentSection:
 class EntityExtractor:
     def __init__(self):
         self.person_indicators = ['mother', 'father', 'child', 'worker', 'carer', 'guardian']
-        self.family_indicators = ['family', 'household', 'home']
-        self.name_pattern = r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
+        self.family_indicators = ['family', 'household', 'home', 'family\'s']  # Added family's self.name_pattern = r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         entities = defaultdict(set)
@@ -89,7 +88,7 @@ class DocumentManager:
                 'description': 'Privacy statement and acknowledgment'
             },
             'intake': {
-                'keywords': ['intake form', 'intake assessment', 'initial assessment', 'intake_form'],
+                'keywords': ['intake form', 'intake assessment', 'initial assessment', 'intake.pdf', 'intake_form'],
                 'mandatory': True,
                 'found_in': None,
                 'description': 'Client intake form'
@@ -230,7 +229,10 @@ class DocumentManager:
                 name_lower = name.lower()
                 # Higher weight for exact family name matches
                 if entity_type == 'family_names' and name_lower in text_lower:
-                    score += 3.0  # Highest priority for family matches
+                    score += 5.0  # Increased from 3.0 to give higher priority
+                    # Extra boost for exact matches
+                    if f"{name_lower} family" in text_lower or f"family {name_lower}" in text_lower:
+                        score += 3.0
                     # Extra boost if name appears near case-related terms
                     if any(term in text_lower[max(0, text_lower.find(name_lower)-50):
                                            min(len(text_lower), text_lower.find(name_lower)+50)] 
@@ -239,10 +241,10 @@ class DocumentManager:
                 elif name_lower in text_lower:
                     score += 2.0
                     
-                # Additional boost for case files
-                if doc_type == "Case Files":
-                    score += 1.5
-        
+        # Boost case files even higher for family queries
+        if doc_type == "Case Files":
+            score += 2.5  # Increased from 1.5
+
         # Context boost for risk-related content
         if any(term in text_lower for term in ['risk', 'hazard', 'danger', 'safety', 'warning', 'incident']):
             score += 2.0
@@ -441,7 +443,7 @@ def query():
         # Build context text
         context_text = ""
         total_chars = 0
-        max_chars = 10000 if detail_level == 'detailed' else 2000  # Reduced from 20000
+        max_chars = 5000 if detail_level == 'detailed' else 2000  # Reduced from 10000
         
         # Add missing documents to context for operational queries
         if response_type == 'operational':
@@ -564,16 +566,16 @@ Here are relevant sections from documents:
 
 Provide a {detail_level} response focusing on {response_type} aspects."""
 
-        # Analyze with GPT-4
+        # Increase GPT timeout:
         response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0,
-            request_timeout=30
-        )
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ],
+    temperature=0,
+    request_timeout=45  # Increased from 30
+)
         
         answer = response.choices[0].message['content']
         
