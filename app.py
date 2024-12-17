@@ -24,7 +24,8 @@ class DocumentSection:
 class EntityExtractor:
     def __init__(self):
         self.person_indicators = ['mother', 'father', 'child', 'worker', 'carer', 'guardian']
-        self.family_indicators = ['family', 'household', 'home', 'family\'s']  # Added family's self.name_pattern = r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
+        self.family_indicators = ['family', 'household', 'home', 'family\'s']  # Added family's
+        self.name_pattern = r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         entities = defaultdict(set)
