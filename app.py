@@ -24,7 +24,7 @@ class DocumentSection:
 class EntityExtractor:
     def __init__(self):
         self.person_indicators = ['mother', 'father', 'child', 'worker', 'carer', 'guardian']
-        self.family_indicators = ['family', 'household', 'home', 'family\'s']  # Added family's
+        self.family_indicators = ['family', 'household', 'home', 'family\'s']
         self.name_pattern = r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
@@ -186,6 +186,11 @@ class DocumentManager:
             for page_num, text in content:
                 # Extract entities from the text
                 entities = self.entity_extractor.extract_entities(text)
+
+	        # Print what we find for debugging
+                if 'alias' in text.lower():  # Debug check
+                    print(f"Found 'alias' in {file_path}")
+                    print(f"Entities found: {entities}")
                 
                 # Calculate relevance score based on multiple factors
                 score = self._calculate_relevance(
@@ -419,6 +424,7 @@ def query():
         
         # Process the question
         search_context = query_processor.process_question(user_question)
+        print(f"Detected entities: {search_context['entities']}")  # Add this debug line here
         
         # Determine which folders to search
         folders_to_search = ['docs', 'operational_docs']
@@ -434,6 +440,11 @@ def query():
                 for file_path in folder_path.rglob('*.pdf'):
                     sections = doc_manager.scan_document(file_path, search_context)
                     all_content.extend(sections)
+        
+        # Add these debug lines here
+        print(f"Found {len(all_content)} relevant sections")
+        for item in all_content:
+            print(f"Document: {item.document_name}, Score: {item.relevance_score}")
         
         # Sort by relevance score
         all_content.sort(key=lambda x: x.relevance_score, reverse=True)
