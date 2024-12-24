@@ -58,6 +58,62 @@ class DocumentManager:
         self.base_path = Path(base_path)
         self.entity_extractor = EntityExtractor()
         self.document_cache = {}
+        self.required_documents = {
+            'consent': {
+                'keywords': ['consent form', 'consent document', 'signed consent', 'client consent'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Client consent form'
+            },
+            'privacy': {
+                'keywords': ['privacy form', 'privacy statement', 'privacy acknowledgment', 'privacy consent'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Privacy statement and acknowledgment'
+            },
+            'intake': {
+                'keywords': ['intake form', 'intake assessment', 'initial assessment', 'intake_form'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Client intake form'
+            },
+            'rights': {
+                'keywords': ['rights and responsibilities', 'client rights', 'responsibilities form'],
+                'mandatory': False,
+                'found_in': None,
+                'description': 'Rights and responsibilities acknowledgment'
+            },
+            'risk_assessment': {
+                'keywords': ['risk assessment', 'risk matrix', 'safety assessment', 'risk_assessment', 'best_interest'],
+                'mandatory': True,
+                'found_in': None,
+                'description': 'Safety and risk assessment'
+            }
+        }
+        
+    def check_missing_documents(self, all_content: List[DocumentSection]) -> Dict[str, Dict[str, Any]]:
+        document_status = {}
+        
+        # Check each required document
+        for doc_type, details in self.required_documents.items():
+            status = {
+                'found': False,
+                'mandatory': details['mandatory'],
+                'description': details['description'],
+                'found_in': None
+            }
+            
+            # Check content for keywords
+            for section in all_content:
+                content_lower = section.content.lower()
+                if any(keyword in content_lower for keyword in details['keywords']):
+                    status['found'] = True
+                    status['found_in'] = section.document_name
+                    break
+            
+            document_status[doc_type] = status
+        
+        return document_status
         
     def get_document_type(self, path: Path) -> str:
         if 'docs' == path.parent.name:
@@ -183,16 +239,41 @@ HTML_TEMPLATE = '''
     <style>
         body { max-width: 800px; margin: auto; padding: 20px; font-family: Arial, sans-serif; }
         #chat-box { height: 400px; border: 1px solid #ccc; overflow-y: scroll; margin: 20px 0; padding: 10px; }
-        input[type="text"] { width: 80%; padding: 10px; }
-        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        .detail-level { margin-bottom: 10px; }
+        select { 
+            padding: 8px;
+            margin-left: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        input[type="text"] { 
+            width: 80%; 
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button { 
+            padding: 10px 20px; 
+            background-color: #007bff; 
+            color: white; 
+            border: none;
+            border-radius: 4px;
+            cursor: pointer; 
+        }
         button:disabled { background-color: #ccc; }
         .loading { color: #666; }
         .error { color: red; }
-        .source { color: #666; font-size: 0.9em; margin-top: 5px; }
     </style>
 </head>
 <body>
     <h1>Compliance and Risk Assistant</h1>
+    <div class="detail-level">
+        <label>Detail Level:</label>
+        <select id="detail-level">
+            <option value="concise">Concise</option>
+            <option value="detailed">Detailed</option>
+        </select>
+    </div>
     <div id="chat-box"></div>
     <form id="chat-form">
         <input type="text" id="question" placeholder="Ask a question..." required>
@@ -203,6 +284,7 @@ HTML_TEMPLATE = '''
             e.preventDefault();
             const chatBox = document.getElementById('chat-box');
             const question = document.getElementById('question').value;
+            const detail = document.getElementById('detail-level').value;
             const submitBtn = document.getElementById('submit-btn');
             
             submitBtn.disabled = true;
@@ -211,7 +293,8 @@ HTML_TEMPLATE = '''
             chatBox.scrollTop = chatBox.scrollHeight;
             
             try {
-                const response = await fetch('/query?q=' + encodeURIComponent(question));
+                const response = await fetch('/query?q=' + encodeURIComponent(question) + 
+                                          '&detail=' + detail);
                 const answer = await response.text();
                 chatBox.removeChild(chatBox.lastChild);
                 chatBox.innerHTML += '<p><b>A:</b> ' + answer + '</p>';
@@ -239,6 +322,7 @@ def query():
         load_dotenv()
         openai.api_key = os.getenv('OPENAI_API_KEY')
         user_question = request.args.get('q', '')
+        detail_level = request.args.get('detail', 'concise')
         
         # Initialize components
         query_processor = QueryProcessor()
@@ -265,11 +349,21 @@ def query():
         # Sort by relevance score
         all_content.sort(key=lambda x: x.relevance_score, reverse=True)
         
-        # Build context string
+        # Check for missing documents
+        missing_docs = doc_manager.check_missing_documents(all_content)
+        
+        # Build context text
         context_text = ""
         total_chars = 0
-        max_chars = 20000
+        max_chars = 20000 if detail_level == 'detailed' else 2000
         
+        # Add missing documents info to context
+        missing_list = [f"{details['description']} (mandatory)" if details['mandatory'] else details['description']
+                       for doc_type, details in missing_docs.items() if not details['found']]
+        if missing_list:
+            context_text = "MISSING REQUIRED DOCUMENTS:\n- " + "\n- ".join(missing_list) + "\n\n"
+        
+        # Add document content to context
         for item in all_content:
             section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
             section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
@@ -285,41 +379,49 @@ def query():
             return ("I couldn't find relevant information in the documents. "
                    "Please try rephrasing your question or providing more context.")
         
-        # Prepare system prompt based on found entities
-        system_prompt = """You are a Compliance and Risk Assistant analyzing documents from different contexts:
-- Policy Documents: Official policies and frameworks
-- Operational Guidelines: Practical procedures and forms
-- Case Files: Client-specific information and assessments
+        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 
-Important guidelines:
-1. Always specify which type of document and page contains your information
-2. When answering operational questions, reference both policies and procedures
-3. For case-specific questions, connect client information with relevant policies
-4. Quote relevant text when appropriate
-5. If information seems missing, mention what should be checked
-6. Focus on compliance and risk management
-7. When names are mentioned, clarify their role (e.g., client, worker, family member)
-8. For visits, always check both operational guidelines and client-specific requirements"""
+In CONCISE mode (default):
+1. Start with missing required documents (if any)
+2. Give only the most crucial information in bullet points
+3. Keep it to 4-5 bullet points maximum
+4. Each point should be one line
+
+In DETAILED mode:
+1. List ALL missing required documents with explanations
+2. Provide comprehensive analysis with document references
+3. Include relevant quotes from documents
+4. Note any gaps or inconsistencies
+5. Recommend next steps
+
+Always prioritize:
+1. Required document status
+2. Safety requirements
+3. Compliance with procedures
+4. Family-specific information"""
 
         # Add context about found entities
         if search_context['entities']:
             system_prompt += "\n\nRelevant entities in question:"
-            for entity_type, values in search_context['entities'].items():
+	   for entity_type, values in search_context['entities'].items():
                 if values:
                     system_prompt += f"\n- {entity_type}: {', '.join(values)}"
         
+        # Build user prompt
+        user_prompt = f"""Question: {user_question}
+
+Here are relevant sections from documents:
+
+{context_text}
+
+Provide a {detail_level} response following the guidelines."""
+
         # Analyze with GPT-4
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"""Question: {user_question}
-
-Here are relevant sections from multiple documents:
-
-{context_text}
-
-Provide a detailed answer that synthesizes information from all relevant sources. Consider policy requirements, operational procedures, and any case-specific details. If this involves a visit or client interaction, be sure to highlight safety and procedural requirements."""}
+                {"role": "user", "content": user_prompt}
             ],
             temperature=0,
             request_timeout=30
@@ -327,12 +429,15 @@ Provide a detailed answer that synthesizes information from all relevant sources
         
         answer = response.choices[0].message['content']
         
-        # Add coverage info
-        coverage_info = (f"\n\nDocument Coverage: Searched {len(list(Path('docs').glob('*.pdf')))} policy documents, "
-                        f"{len(list(Path('operational_docs').rglob('*.pdf')))} operational documents")
-        if 'case_docs' in folders_to_search:
-            coverage_info += f", and relevant case files"
-        coverage_info += f". Found relevant content in {len(set(item.document_name for item in all_content))} documents."
+        # Add minimal coverage info for concise mode
+        if detail_level == 'concise':
+            coverage_info = "\n\nBased on relevant policy and operational documents."
+        else:
+            coverage_info = (f"\n\nDocument Coverage: Searched {len(list(Path('docs').glob('*.pdf')))} policy documents, "
+                           f"{len(list(Path('operational_docs').rglob('*.pdf')))} operational documents")
+            if 'case_docs' in folders_to_search:
+                coverage_info += f", and relevant case files"
+            coverage_info += f". Found relevant content in {len(set(item.document_name for item in all_content))} documents."
         
         return answer + coverage_info
         
