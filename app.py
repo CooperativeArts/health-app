@@ -244,9 +244,9 @@ class QueryProcessor:
                 terms.add(word)
         
         # Add context-specific terms based on question type
-        if 'visit' in question.lower():
-            terms.update(['visit', 'assessment', 'safety', 'procedure'])
-        
+        if 'visit' in user_question.lower():
+    	   search_context['terms'].extend(['risk', 'safety', 'hazard', 'assessment'])
+
         return {
             'terms': list(terms),
             'entities': entities
@@ -353,6 +353,10 @@ def query():
         # Process the question
         search_context = query_processor.process_question(user_question)
         
+        # Add visit-specific terms if the question is about visits
+        if 'visit' in user_question.lower():
+            search_context['terms'].extend(['risk', 'safety', 'hazard', 'assessment'])
+        
         # Determine which folders to search
         folders_to_search = ['docs', 'operational_docs']
         if search_context['entities'].get('client_ids') or search_context['entities'].get('names'):
@@ -379,13 +383,7 @@ def query():
         total_chars = 0
         max_chars = 20000 if detail_level == 'detailed' else 2000
         
-        # Add missing documents info to context
-        missing_list = [f"{details['description']} (mandatory)" if details['mandatory'] else details['description']
-                       for doc_type, details in missing_docs.items() if not details['found']]
-        if missing_list:
-            context_text = "MISSING REQUIRED DOCUMENTS:\n- " + "\n- ".join(missing_list) + "\n\n"
-        
-        # Add document content to context
+        # Add document content to context first (prioritize actual content)
         for item in all_content:
             section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
             section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
@@ -397,30 +395,41 @@ def query():
             else:
                 break
 
+        # Only add missing documents info if it's directly relevant to the question
+        # or if we found no other relevant content
+        if not context_text.strip() or any(kw in user_question.lower() for kw in ['document', 'form', 'missing', 'required']):
+            missing_list = [f"{details['description']} (mandatory)" if details['mandatory'] else details['description']
+                          for doc_type, details in missing_docs.items() if not details['found']]
+            if missing_list:
+                context_text = "MISSING REQUIRED DOCUMENTS:\n- " + "\n- ".join(missing_list) + "\n\n" + context_text
+
         if not context_text.strip():
             return ("I couldn't find relevant information in the documents. "
                    "Please try rephrasing your question or providing more context.")
 
         system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
+Focus on answering the specific question asked while considering the document context.
 
 In CONCISE mode (default):
-1. Start with missing required documents (if any)
-2. Give only the most crucial information in bullet points
-3. Keep it to 4-5 bullet points maximum
-4. Each point should be one line
+1. Answer the specific question asked
+2. Only mention missing documents if they directly impact the answer to the question
+3. Give only the most crucial information in bullet points
+4. Keep it to 4-5 bullet points maximum
+5. Each point should be one line
 
 In DETAILED mode:
-1. List ALL missing required documents with explanations
-2. Provide comprehensive analysis with document references
-3. Include relevant quotes from documents
-4. Note any gaps or inconsistencies
-5. Recommend next steps
+1. Provide comprehensive analysis focused on the question
+2. Include relevant quotes from documents
+3. Note any gaps or inconsistencies
+4. Recommend next steps
+5. Include missing document information only if relevant to the question
 
 Always prioritize:
-1. Required document status
+1. Direct answers to the specific question
 2. Safety requirements
 3. Compliance with procedures
-4. Family-specific information"""
+4. Family-specific information
+5. Only mention missing documents if relevant to the current query"""
 
         # Add context about found entities
         if search_context['entities']:
@@ -436,7 +445,7 @@ Here are relevant sections from documents:
 
 {context_text}
 
-Provide a {detail_level} response following the guidelines."""
+Please provide a {detail_level} response that directly addresses the question asked."""
 
         # Analyze with GPT-4
         response = openai.ChatCompletion.create(
