@@ -8,8 +8,29 @@ import re
 from typing import List, Dict, Any
 from dataclasses import dataclass
 from pathlib import Path
+import pkg_resources
 
 app = Flask(__name__)
+
+def check_dependencies():
+    required_packages = ['flask', 'openai', 'python-dotenv', 'pypdf']
+    installed = {pkg.key for pkg in pkg_resources.working_set}
+    missing = [pkg for pkg in required_packages if pkg not in installed]
+    if missing:
+        raise ModuleNotFoundError(f"Missing required packages: {', '.join(missing)}")
+
+def validate_environment():
+    required_vars = ['OPENAI_API_KEY']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+def validate_directories():
+    required_dirs = ['docs', 'operational_docs', 'case_docs']
+    for dir_name in required_dirs:
+        dir_path = Path(dir_name)
+        if not dir_path.exists():
+            dir_path.mkdir(parents=True, exist_ok=True)
 
 @dataclass
 class DocumentSection:
@@ -320,6 +341,7 @@ def home():
 def query():
     try:
         load_dotenv()
+        validate_environment()
         openai.api_key = os.getenv('OPENAI_API_KEY')
         user_question = request.args.get('q', '')
         detail_level = request.args.get('detail', 'concise')
@@ -364,22 +386,22 @@ def query():
             context_text = "MISSING REQUIRED DOCUMENTS:\n- " + "\n- ".join(missing_list) + "\n\n"
         
         # Add document content to context
-        for item in all_content:
-            section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
-            section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
-            section += f"{item.content}\n"
-            
-            if total_chars + len(section) <= max_chars:
-                context_text += section
-                total_chars += len(section)
-            else:
-                break
-        
-        if not context_text.strip():
-            return ("I couldn't find relevant information in the documents. "
-                   "Please try rephrasing your question or providing more context.")
-        
-        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
+for item in all_content:
+    section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
+    section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
+    section += f"{item.content}\n"
+    
+    if total_chars + len(section) <= max_chars:
+        context_text += section
+        total_chars += len(section)
+    else:
+        break
+
+if not context_text.strip():
+    return ("I couldn't find relevant information in the documents. "
+           "Please try rephrasing your question or providing more context.")
+
+system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 
 In CONCISE mode (default):
 1. Start with missing required documents (if any)
@@ -400,15 +422,15 @@ Always prioritize:
 3. Compliance with procedures
 4. Family-specific information"""
 
-        # Add context about found entities
-        if search_context['entities']:
-            system_prompt += "\n\nRelevant entities in question:"
-	   for entity_type, values in search_context['entities'].items():
-                if values:
-                    system_prompt += f"\n- {entity_type}: {', '.join(values)}"
-        
-        # Build user prompt
-        user_prompt = f"""Question: {user_question}
+# Add context about found entities
+if search_context['entities']:
+    system_prompt += "\n\nRelevant entities in question:"
+    for entity_type, values in search_context['entities'].items():
+        if values:
+            system_prompt += f"\n- {entity_type}: {', '.join(values)}"
+
+# Build user prompt
+user_prompt = f"""Question: {user_question}
 
 Here are relevant sections from documents:
 
@@ -416,33 +438,40 @@ Here are relevant sections from documents:
 
 Provide a {detail_level} response following the guidelines."""
 
-        # Analyze with GPT-4
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0,
-            request_timeout=30
-        )
-        
-        answer = response.choices[0].message['content']
-        
-        # Add minimal coverage info for concise mode
-        if detail_level == 'concise':
-            coverage_info = "\n\nBased on relevant policy and operational documents."
-        else:
-            coverage_info = (f"\n\nDocument Coverage: Searched {len(list(Path('docs').glob('*.pdf')))} policy documents, "
-                           f"{len(list(Path('operational_docs').rglob('*.pdf')))} operational documents")
-            if 'case_docs' in folders_to_search:
-                coverage_info += f", and relevant case files"
-            coverage_info += f". Found relevant content in {len(set(item.document_name for item in all_content))} documents."
-        
-        return answer + coverage_info
-        
-    except Exception as e:
-        return f"Error: {str(e)}"
+# Analyze with GPT-4
+response = openai.ChatCompletion.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ],
+    temperature=0,
+    request_timeout=30
+)
+
+answer = response.choices[0].message['content']
+
+# Add minimal coverage info for concise mode
+if detail_level == 'concise':
+    coverage_info = "\n\nBased on relevant policy and operational documents."
+else:
+    coverage_info = (f"\n\nDocument Coverage: Searched {len(list(Path('docs').glob('*.pdf')))} policy documents, "
+                   f"{len(list(Path('operational_docs').rglob('*.pdf')))} operational documents")
+    if 'case_docs' in folders_to_search:
+        coverage_info += f", and relevant case files"
+    coverage_info += f". Found relevant content in {len(set(item.document_name for item in all_content))} documents."
+
+return answer + coverage_info
+    
+except Exception as e:
+    return f"Error: {str(e)}"
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8000)
+    try:
+        check_dependencies()
+        validate_environment()
+        validate_directories()
+        app.run(debug=True, host='0.0.0.0', port=8000)
+    except Exception as e:
+        print(f"Startup Error: {str(e)}")
+        exit(1)
