@@ -244,9 +244,9 @@ class QueryProcessor:
                 terms.add(word)
         
         # Add context-specific terms based on question type
-        if 'visit' in user_question.lower():
-    	   search_context['terms'].extend(['risk', 'safety', 'hazard', 'assessment'])
-
+        if 'visit' in question.lower():  # Changed from user_question to question
+            terms.update(['visit', 'assessment', 'safety', 'procedure'])
+        
         return {
             'terms': list(terms),
             'entities': entities
