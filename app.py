@@ -386,22 +386,22 @@ def query():
             context_text = "MISSING REQUIRED DOCUMENTS:\n- " + "\n- ".join(missing_list) + "\n\n"
         
         # Add document content to context
-for item in all_content:
-    section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
-    section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
-    section += f"{item.content}\n"
-    
-    if total_chars + len(section) <= max_chars:
-        context_text += section
-        total_chars += len(section)
-    else:
-        break
+        for item in all_content:
+            section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
+            section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
+            section += f"{item.content}\n"
+            
+            if total_chars + len(section) <= max_chars:
+                context_text += section
+                total_chars += len(section)
+            else:
+                break
 
-if not context_text.strip():
-    return ("I couldn't find relevant information in the documents. "
-           "Please try rephrasing your question or providing more context.")
+        if not context_text.strip():
+            return ("I couldn't find relevant information in the documents. "
+                   "Please try rephrasing your question or providing more context.")
 
-system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
+        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 
 In CONCISE mode (default):
 1. Start with missing required documents (if any)
@@ -422,15 +422,15 @@ Always prioritize:
 3. Compliance with procedures
 4. Family-specific information"""
 
-# Add context about found entities
-if search_context['entities']:
-    system_prompt += "\n\nRelevant entities in question:"
-    for entity_type, values in search_context['entities'].items():
-        if values:
-            system_prompt += f"\n- {entity_type}: {', '.join(values)}"
+        # Add context about found entities
+        if search_context['entities']:
+            system_prompt += "\n\nRelevant entities in question:"
+            for entity_type, values in search_context['entities'].items():
+                if values:
+                    system_prompt += f"\n- {entity_type}: {', '.join(values)}"
 
-# Build user prompt
-user_prompt = f"""Question: {user_question}
+        # Build user prompt
+        user_prompt = f"""Question: {user_question}
 
 Here are relevant sections from documents:
 
@@ -438,33 +438,34 @@ Here are relevant sections from documents:
 
 Provide a {detail_level} response following the guidelines."""
 
-# Analyze with GPT-4
-response = openai.ChatCompletion.create(
-    model="gpt-4",
-    messages=[
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ],
-    temperature=0,
-    request_timeout=30
-)
+        # Analyze with GPT-4
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0,
+            request_timeout=30
+        )
 
-answer = response.choices[0].message['content']
+        answer = response.choices[0].message['content']
 
-# Add minimal coverage info for concise mode
-if detail_level == 'concise':
-    coverage_info = "\n\nBased on relevant policy and operational documents."
-else:
-    coverage_info = (f"\n\nDocument Coverage: Searched {len(list(Path('docs').glob('*.pdf')))} policy documents, "
-                   f"{len(list(Path('operational_docs').rglob('*.pdf')))} operational documents")
-    if 'case_docs' in folders_to_search:
-        coverage_info += f", and relevant case files"
-    coverage_info += f". Found relevant content in {len(set(item.document_name for item in all_content))} documents."
+        # Add minimal coverage info for concise mode
+        if detail_level == 'concise':
+            coverage_info = "\n\nBased on relevant policy and operational documents."
+        else:
+            coverage_info = (f"\n\nDocument Coverage: Searched {len(list(Path('docs').glob('*.pdf')))} policy documents, "
+                           f"{len(list(Path('operational_docs').rglob('*.pdf')))} operational documents")
+            if 'case_docs' in folders_to_search:
+                coverage_info += f", and relevant case files"
+            coverage_info += f". Found relevant content in {len(set(item.document_name for item in all_content))} documents."
 
-return answer + coverage_info
-    
-except Exception as e:
-    return f"Error: {str(e)}"
+        return answer + coverage_info
+        
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 
 if __name__ == '__main__':
     try:
