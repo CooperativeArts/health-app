@@ -534,7 +534,7 @@ def query():
                         context_text += section
                         total_chars += len(section)
 
-        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
+        system_prompt = '''You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 
 CRITICAL INSTRUCTIONS:
 1. For policy questions, ALWAYS check for:
@@ -583,7 +583,7 @@ When listing multiple requirements:
 - Qualification/certification requirements next
 - Safety/equipment requirements next
 - Final approvals last (e.g., team leader)
-- Make clear if any steps must happen in specific order"""
+- Make clear if any steps must happen in specific order'''
 
         # Add context about found entities
         if search_context['entities']:
