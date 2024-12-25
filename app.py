@@ -201,62 +201,62 @@ class DocumentManager:
                            entities: Dict[str, List[str]], 
                            search_entities: Dict[str, List[str]],
                            doc_type: str) -> float:
-    score = 0.0
-    text_lower = text.lower()
-    
-    # Term matching with weighted importance
-    term_weights = {
-        'risk': 3.0,
-        'safety': 3.0,
-        'hazard': 3.0,
-        'danger': 3.0,
-        'assessment': 2.5,
-        'visit': 2.0,
-        'procedure': 1.5,
-        'policy': 1.0,
-        'form': 0.5
-    }
-    
-    # Calculate term score with weights
-    for term in search_terms:
-        term_lower = term.lower()
-        if term_lower in text_lower:
-            weight = term_weights.get(term_lower, 1.0)
-            score += weight
-            
-            # Extra boost for risk-related content near entity mentions
-            if term_lower in ['risk', 'safety', 'hazard'] and search_entities:
-                for entity_values in search_entities.values():
-                    for entity in entity_values:
-                        if entity.lower() in text_lower:
-                            score += 2.0  # Significant boost for risk content about specific entities
-    
-    # Entity matching (weighted higher)
-    for entity_type, search_names in search_entities.items():
-        for name in search_names:
-            if name.lower() in text_lower:
-                score += 2.0  # Weight entity matches higher
-                # Additional boost for case files when matching names
-                if doc_type == "Case Files":
-                    score += 1.5
-                    
-                # Extra boost for risk assessments with entity matches
-                if any(kw in text_lower for kw in ['risk', 'safety', 'hazard', 'assessment']):
-                    score += 2.0
-    
-    # Context-based boosts
-    if doc_type == "Forms":
-        if any(kw in text_lower for kw in ['risk assessment', 'safety assessment']):
-            score += 3.0  # High boost for risk assessment forms
-        elif 'visit' in text_lower:
-            score += 1.5
-    elif doc_type == "Operational Guidelines":
-        if any(kw in text_lower for kw in ['risk', 'safety', 'hazard']):
-            score += 2.0
-        elif 'visit' in text_lower:
-            score += 1.5
-            
-    return score
+        score = 0.0
+        text_lower = text.lower()
+        
+        # Term matching with weighted importance
+        term_weights = {
+            'risk': 3.0,
+            'safety': 3.0,
+            'hazard': 3.0,
+            'danger': 3.0,
+            'assessment': 2.5,
+            'visit': 2.0,
+            'procedure': 1.5,
+            'policy': 1.0,
+            'form': 0.5
+        }
+        
+        # Calculate term score with weights
+        for term in search_terms:
+            term_lower = term.lower()
+            if term_lower in text_lower:
+                weight = term_weights.get(term_lower, 1.0)
+                score += weight
+                
+                # Extra boost for risk-related content near entity mentions
+                if term_lower in ['risk', 'safety', 'hazard'] and search_entities:
+                    for entity_values in search_entities.values():
+                        for entity in entity_values:
+                            if entity.lower() in text_lower:
+                                score += 2.0  # Significant boost for risk content about specific entities
+        
+        # Entity matching (weighted higher)
+        for entity_type, search_names in search_entities.items():
+            for name in search_names:
+                if name.lower() in text_lower:
+                    score += 2.0  # Weight entity matches higher
+                    # Additional boost for case files when matching names
+                    if doc_type == "Case Files":
+                        score += 1.5
+                        
+                    # Extra boost for risk assessments with entity matches
+                    if any(kw in text_lower for kw in ['risk', 'safety', 'hazard', 'assessment']):
+                        score += 2.0
+        
+        # Context-based boosts
+        if doc_type == "Forms":
+            if any(kw in text_lower for kw in ['risk assessment', 'safety assessment']):
+                score += 3.0  # High boost for risk assessment forms
+            elif 'visit' in text_lower:
+                score += 1.5
+        elif doc_type == "Operational Guidelines":
+            if any(kw in text_lower for kw in ['risk', 'safety', 'hazard']):
+                score += 2.0
+            elif 'visit' in text_lower:
+                score += 1.5
+                
+        return score
 
 class QueryProcessor:
     def __init__(self):
