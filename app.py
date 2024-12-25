@@ -206,14 +206,26 @@ class DocumentManager:
         
         # Term matching with weighted importance
         term_weights = {
-            'risk': 3.0,
-            'safety': 3.0,
-            'hazard': 3.0,
-            'danger': 3.0,
-            'assessment': 2.5,
-            'visit': 2.0,
-            'procedure': 1.5,
-            'policy': 1.0,
+            # Device and security terms
+            'mobile': 3.0,
+            'phone': 3.0,
+            'device': 3.0,
+            'security': 2.5,
+            # Risk terms
+            'risk': 2.5,
+            'safety': 2.5,
+            'hazard': 2.5,
+            # Policy terms
+            'policy': 2.0,
+            'procedure': 2.0,
+            'requirement': 2.0,
+            'permission': 2.0,
+            # Directive terms
+            'must': 2.5,
+            'required': 2.5,
+            'prohibited': 2.5,
+            'allowed': 2.0,
+            # General terms
             'form': 0.5
         }
         
@@ -224,64 +236,79 @@ class DocumentManager:
                 weight = term_weights.get(term_lower, 1.0)
                 score += weight
                 
-                # Extra boost for risk-related content near entity mentions
-                if term_lower in ['risk', 'safety', 'hazard'] and search_entities:
-                    for entity_values in search_entities.values():
-                        for entity in entity_values:
-                            if entity.lower() in text_lower:
-                                score += 2.0  # Significant boost for risk content about specific entities
-        
-        # Entity matching (weighted higher)
-        for entity_type, search_names in search_entities.items():
-            for name in search_names:
-                if name.lower() in text_lower:
-                    score += 2.0  # Weight entity matches higher
-                    # Additional boost for case files when matching names
-                    if doc_type == "Case Files":
-                        score += 1.5
-                        
-                    # Extra boost for risk assessments with entity matches
-                    if any(kw in text_lower for kw in ['risk', 'safety', 'hazard', 'assessment']):
-                        score += 2.0
+                # Boost for clear directives
+                directive_words = ['must', 'shall', 'required', 'prohibited', 'not allowed', 'never']
+                if any(directive in text_lower.split() for directive in directive_words):
+                    score += weight * 1.5  # 50% boost for directive statements
+                
+                # Extra boost for permission requirements
+                if term_lower in ['permission', 'approval'] and 'required' in text_lower:
+                    score += 2.0
         
         # Context-based boosts
-        if doc_type == "Forms":
-            if any(kw in text_lower for kw in ['risk assessment', 'safety assessment']):
-                score += 3.0  # High boost for risk assessment forms
-            elif 'visit' in text_lower:
-                score += 1.5
-        elif doc_type == "Operational Guidelines":
-            if any(kw in text_lower for kw in ['risk', 'safety', 'hazard']):
-                score += 2.0
-            elif 'visit' in text_lower:
-                score += 1.5
+        if doc_type == "Operational Guidelines":
+            if 'policy' in text_lower:
+                score *= 1.5  # 50% boost for policy documents
+                # Extra boost for relevant policy sections
+                if any(kw in text_lower for kw in ['requirement:', 'policy:', 'rules:', 'procedures:']):
+                    score *= 1.25
+            
+            # Extra boost for exact policy matches
+            file_name_lower = str(self.base_path / doc_type).lower()
+            if 'mobile' in file_name_lower and any(term in ['mobile', 'phone', 'device'] for term in search_terms):
+                score += 3.0
+            elif 'security' in file_name_lower and 'security' in search_terms:
+                score += 3.0
                 
         return score
 
 class QueryProcessor:
     def __init__(self):
         self.entity_extractor = EntityExtractor()
+        self.policy_actions = {
+            'take_home': ['take home', 'bring home', 'remove from', 'outside office', 'outside workplace'],
+            'permission': ['permission', 'approval', 'authorize', 'allowed', 'permitted'],
+            'prohibition': ['cannot', 'must not', 'not allowed', 'prohibited', 'not permitted'],
+            'requirement': ['must', 'required', 'shall', 'need to', 'have to']
+        }
         
     def process_question(self, question: str) -> Dict[str, Any]:
-        # Extract entities from the question
+        # Extract entities
         entities = self.entity_extractor.extract_entities(question)
         
-        # Extract search terms (excluding found entities and common words)
+        # Basic terms
         common_words = {'what', 'is', 'are', 'in', 'the', 'and', 'or', 'to', 'a', 'an', 
-                       'about', 'how', 'can', 'do', 'does', 'visiting', 'need', 'know'}
+                       'about', 'how', 'can', 'do', 'does', 'visiting', 'need', 'know',
+                       'my', 'me', 'we', 'our', 'their', 'your'}
         
-        # Add domain-specific terms
+        # Process terms
         terms = set()
-        for word in question.lower().split():
+        question_lower = question.lower()
+        
+        # Identify action type
+        for action, phrases in self.policy_actions.items():
+            if any(phrase in question_lower for phrase in phrases):
+                terms.update(phrases)
+        
+        # Process words and add related terms
+        for word in question_lower.split():
             word = word.strip('?.,!')
             if word not in common_words and \
                not any(word in str(e).lower() for e in entities.values()):
                 terms.add(word)
+                
+                # Add related terms for devices
+                if word in ['phone', 'mobile', 'device']:
+                    terms.update(['device', 'mobile', 'phone', 'equipment'])
+                    if 'personal' in question_lower:
+                        terms.update(['personal', 'own', 'private'])
+                    if 'work' in question_lower:
+                        terms.update(['work', 'company', 'office'])
         
         # Add context-specific terms based on question type
-        if 'visit' in question.lower():  # Changed from user_question to question
+        if 'visit' in question_lower:
             terms.update(['visit', 'assessment', 'safety', 'procedure'])
-        
+            
         return {
             'terms': list(terms),
             'entities': entities
@@ -477,35 +504,41 @@ def query():
                         context_text += section
                         total_chars += len(section)
 
-        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
+        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice based on policy directives.
 
 CRITICAL INSTRUCTIONS:
-1. Only make statements based on actual document content
-2. If information is missing or unclear, explicitly say so
-3. If a policy doesn't address a specific question, state this clearly
-4. If a required form is missing, explicitly identify it
-5. Never make assumptions about policies or procedures that aren't documented
+1. When a policy contains a clear directive (must, must not, required, prohibited), state it explicitly
+2. Start responses with the exact policy stance:
+   - "NO - [policy] states that [exact prohibition]"
+   - "YES, WITH PERMISSION - [policy] states that [permission requirement]"
+   - "NO POLICY EXISTS - No directive found regarding [specific topic]"
+   - "UNCLEAR - [policy] mentions [topic] but doesn't provide clear directives"
 
 In CONCISE mode (default):
-1. Start with a clear YES/NO/UNCLEAR when appropriate
-2. Give 3-4 bullet points maximum
-3. If information is missing, make this the first point
-4. Focus on what is definitively known from documents
-5. Explicitly state if something is not covered by existing policies
+1. First point MUST be the exact policy directive if one exists
+2. Use exact quotes for policy requirements where available
+3. Max 3 bullet points
+4. Focus only on clear policy statements
+5. If no clear directive exists, state this explicitly
 
 In DETAILED mode:
-1. Begin with clear statement of what is/isn't documented
-2. Quote relevant sections from documents
-3. Note any gaps or unclear areas
-4. Specify which documents were checked
-5. Recommend next steps for missing information
+1. Start with the exact policy directive
+2. Quote relevant policy sections
+3. Explain any requirements or conditions
+4. Note any areas needing clarification
+5. Include related policy references
 
 When answering:
-- If a policy exists but doesn't address the specific question, say: "The [policy name] exists but does not address [specific aspect]"
-- If no relevant policy exists, say: "There is no policy addressing [topic]"
-- If a client form is missing, say: "The [form name] is missing for [client name]"
-- If information is unclear, say: "The policy is unclear about [specific aspect]"
-- Never guess or make assumptions about undocumented procedures"""
+- For clear prohibitions, state: "NO - [policy] prohibits this: [quote directive]"
+- For conditional permissions, state: "YES, WITH PERMISSION - [quote requirements]"
+- For missing policies, state: "NO POLICY EXISTS covering [specific topic]"
+- For unclear policies, state: "UNCLEAR - [policy] does not provide specific direction about [topic]"
+
+Never:
+- Make assumptions about unwritten rules
+- Apply rules from one scenario to another
+- Soften or qualify clear policy directives
+- Omit permission requirements when they exist"""
 
         # Add context about found entities
         if search_context['entities']:
