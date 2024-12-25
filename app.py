@@ -576,7 +576,7 @@ Remember:
 Key Distinctions:
 - Simple permission = "BUT POSSIBLE WITH PERMISSION"
 - Multiple steps = "REQUIRES MULTIPLE APPROVALS"
-- No exceptions allowed = "ABSOLUTELY" (only if explicitly stated)"""
+- No exceptions allowed = "ABSOLUTELY" (only if explicitly stated)
 
 When listing multiple requirements:
 - Mandatory prerequisites first (e.g., parental consent)
