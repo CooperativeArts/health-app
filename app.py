@@ -415,37 +415,25 @@ def query():
         
         # Build context text
         context_text = ""
-total_chars = 0
-max_chars = 20000 if detail_level == 'detailed' else 2000
+        total_chars = 0
+        max_chars = 20000 if detail_level == 'detailed' else 2000
 
-# First pass: Look for high-priority risk content
-risk_content = []
-missing_critical = []
-found_risk_assessment = False
+        # First pass: Look for high-priority risk content
+        risk_content = []
+        missing_critical = []
+        found_risk_assessment = False
 
-# Check for risk assessment and critical content first
-for item in all_content:
-    content_lower = item.content.lower()
-    if any(term in content_lower for term in ['risk assessment', 'safety assessment']):
-        found_risk_assessment = True
-        risk_content.append(item)
-    elif any(term in content_lower for term in ['risk', 'safety', 'hazard']) and item.relevance_score > 1.5:
-        risk_content.append(item)
+        # Check for risk assessment and critical content first
+        for item in all_content:
+            content_lower = item.content.lower()
+            if any(term in content_lower for term in ['risk assessment', 'safety assessment']):
+                found_risk_assessment = True
+                risk_content.append(item)
+            elif any(term in content_lower for term in ['risk', 'safety', 'hazard']) and item.relevance_score > 1.5:
+                risk_content.append(item)
 
-# Build context starting with risk content
-for item in risk_content:
-    section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
-    section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
-    section += f"{item.content}\n"
-    
-    if total_chars + len(section) <= max_chars:
-        context_text += section
-        total_chars += len(section)
-
-# Add remaining relevant content if space allows and in detailed mode
-if detail_level == 'detailed' and total_chars < max_chars:
-    for item in all_content:
-        if item not in risk_content:
+        # Build context starting with risk content
+        for item in risk_content:
             section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
             section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
             section += f"{item.content}\n"
@@ -453,31 +441,43 @@ if detail_level == 'detailed' and total_chars < max_chars:
             if total_chars + len(section) <= max_chars:
                 context_text += section
                 total_chars += len(section)
-            else:
-                break
 
-# Handle missing documents based on mode
-missing_docs_relevant = any(kw in user_question.lower() for kw in ['document', 'form', 'missing', 'required'])
-if detail_level == 'detailed' or not found_risk_assessment or missing_docs_relevant:
-    missing_list = []
-    for doc_type, details in missing_docs.items():
-        if not details['found']:
-            if doc_type == 'risk_assessment' or (detail_level == 'detailed' and details['mandatory']):
-                prefix = "⚠️ " if doc_type == 'risk_assessment' else ""
-                missing_list.append(f"{prefix}{details['description']} (mandatory)" if details['mandatory'] 
-                                 else f"{prefix}{details['description']}")
-    
-    if missing_list:
-        prefix_text = "\nMISSING CRITICAL DOCUMENTS:\n- " if not found_risk_assessment else "\nOTHER MISSING DOCUMENTS:\n- "
-        missing_context = prefix_text + "\n- ".join(missing_list) + "\n\n"
-        if detail_level == 'detailed':
-            context_text = missing_context + context_text
-        else:
-            # In concise mode, only add missing docs at start if risk assessment is missing
-            if not found_risk_assessment:
-                context_text = missing_context + context_text
+        # Add remaining relevant content if space allows and in detailed mode
+        if detail_level == 'detailed' and total_chars < max_chars:
+            for item in all_content:
+                if item not in risk_content:
+                    section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
+                    section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
+                    section += f"{item.content}\n"
+                    
+                    if total_chars + len(section) <= max_chars:
+                        context_text += section
+                        total_chars += len(section)
+                    else:
+                        break
 
-system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
+        # Handle missing documents based on mode
+        missing_docs_relevant = any(kw in user_question.lower() for kw in ['document', 'form', 'missing', 'required'])
+        if detail_level == 'detailed' or not found_risk_assessment or missing_docs_relevant:
+            missing_list = []
+            for doc_type, details in missing_docs.items():
+                if not details['found']:
+                    if doc_type == 'risk_assessment' or (detail_level == 'detailed' and details['mandatory']):
+                        prefix = "⚠️ " if doc_type == 'risk_assessment' else ""
+                        missing_list.append(f"{prefix}{details['description']} (mandatory)" if details['mandatory'] 
+                                         else f"{prefix}{details['description']}")
+            
+            if missing_list:
+                prefix_text = "\nMISSING CRITICAL DOCUMENTS:\n- " if not found_risk_assessment else "\nOTHER MISSING DOCUMENTS:\n- "
+                missing_context = prefix_text + "\n- ".join(missing_list) + "\n\n"
+                if detail_level == 'detailed':
+                    context_text = missing_context + context_text
+                else:
+                    # In concise mode, only add missing docs at start if risk assessment is missing
+                    if not found_risk_assessment:
+                        context_text = missing_context + context_text
+
+        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 Focus on answering the specific question asked while considering the document context.
 
 In CONCISE mode (default):
@@ -501,15 +501,15 @@ Always prioritize in this order:
 4. Other relevant safety information
 5. Missing documentation (detailed mode only unless critical)"""
 
-# Add context about found entities
-if search_context['entities']:
-    system_prompt += "\n\nRelevant entities in question:"
-    for entity_type, values in search_context['entities'].items():
-        if values:
-            system_prompt += f"\n- {entity_type}: {', '.join(values)}"
+        # Add context about found entities
+        if search_context['entities']:
+            system_prompt += "\n\nRelevant entities in question:"
+            for entity_type, values in search_context['entities'].items():
+                if values:
+                    system_prompt += f"\n- {entity_type}: {', '.join(values)}"
 
-if 'visit' in user_question.lower():
-    system_prompt += """
+        if 'visit' in user_question.lower():
+            system_prompt += """
 
 For visit-related queries:
 1. Focus on IMMEDIATE safety risks first
