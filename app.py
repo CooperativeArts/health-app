@@ -413,33 +413,52 @@ def query():
         # Check for missing documents
         missing_docs = doc_manager.check_missing_documents(all_content)
         
-        # Inside query route, replace the context building section:
+# Inside query route, replace the context building and prompt sections:
         
         # Build context text
         context_text = ""
         total_chars = 0
-        max_chars = 20000 if detail_level == 'detailed' else 4000  # Increased for concise mode
+        max_chars = 20000 if detail_level == 'detailed' else 4000
 
-        # First: Handle missing documents regardless of mode
+        # Track found policies and forms
+        found_policies = set()
+        found_forms = set()
+        relevant_content_found = False
+        
+        # First: Scan and categorize all content
+        for item in all_content:
+            if item.context == "Forms":
+                found_forms.add(item.document_name)
+            elif item.context == "Operational Guidelines":
+                found_policies.add(item.document_name)
+                
+            # Check if content is relevant to the question
+            content_lower = item.content.lower()
+            question_terms = set(user_question.lower().split()) - {'what', 'is', 'are', 'the', 'a', 'an', 'in', 'for', 'to', 'of'}
+            if any(term in content_lower for term in question_terms):
+                relevant_content_found = True
+
+        # Add document status section
+        status_text = "DOCUMENT STATUS:\n"
+        
+        # Add missing documents status if any are missing
         missing_list = [f"{details['description']} (mandatory)" if details['mandatory'] else details['description']
                        for doc_type, details in missing_docs.items() if not details['found']]
-        
         if missing_list:
-            context_text = "MISSING DOCUMENTS STATUS:\n- " + "\n- ".join(missing_list) + "\n\n"
-            total_chars += len(context_text)
+            status_text += "Missing Required Documents:\n- " + "\n- ".join(missing_list) + "\n\n"
 
-        # Second: Add high-priority content (both modes)
-        for item in all_content:
-            content_lower = item.content.lower()
-            is_high_priority = (
-                'missing' in user_question.lower() or
-                'document' in user_question.lower() or
-                any(term in content_lower for term in ['risk assessment', 'safety assessment']) or
-                (any(term in content_lower for term in ['risk', 'safety', 'hazard']) and 
-                 item.relevance_score > 1.5)
-            )
+        # Add relevant policies/forms status
+        if found_policies:
+            status_text += f"Available Relevant Policies:\n- " + "\n- ".join(found_policies) + "\n\n"
+        if found_forms:
+            status_text += f"Available Forms:\n- " + "\n- ".join(found_forms) + "\n\n"
             
-            if is_high_priority:
+        context_text += status_text
+        total_chars += len(status_text)
+
+        # Add high-priority content
+        for item in all_content:
+            if item.relevance_score > 1.5:
                 section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
                 section += f"{item.content}\n"
                 
@@ -447,11 +466,10 @@ def query():
                     context_text += section
                     total_chars += len(section)
 
-        # Third: Add remaining content (detailed mode only)
+        # Add remaining relevant content in detailed mode
         if detail_level == 'detailed' and total_chars < max_chars:
             for item in all_content:
-                content_lower = item.content.lower()
-                if not any(term in content_lower for term in ['risk assessment', 'safety assessment', 'risk', 'safety', 'hazard']):
+                if item.relevance_score <= 1.5:
                     section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
                     section += f"{item.content}\n"
                     
@@ -461,39 +479,44 @@ def query():
 
         system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 
-IMPORTANT: Base your response ONLY on the actual document content provided. Do not make assumptions about missing documents unless they are explicitly listed in the MISSING DOCUMENTS STATUS section.
+CRITICAL INSTRUCTIONS:
+1. Only make statements based on actual document content
+2. If information is missing or unclear, explicitly say so
+3. If a policy doesn't address a specific question, state this clearly
+4. If a required form is missing, explicitly identify it
+5. Never make assumptions about policies or procedures that aren't documented
 
 In CONCISE mode (default):
-1. List ONLY the actually missing documents from the MISSING DOCUMENTS STATUS section
-2. Keep to 3-4 bullet points maximum
-3. Each point should focus on one missing document
-4. Don't speculate about documents that aren't mentioned
+1. Start with a clear YES/NO/UNCLEAR when appropriate
+2. Give 3-4 bullet points maximum
+3. If information is missing, make this the first point
+4. Focus on what is definitively known from documents
+5. Explicitly state if something is not covered by existing policies
 
 In DETAILED mode:
-1. List all missing documents with explanations
-2. Provide context from available documents
-3. Note document locations and references
-4. Recommend next steps for document completion
+1. Begin with clear statement of what is/isn't documented
+2. Quote relevant sections from documents
+3. Note any gaps or unclear areas
+4. Specify which documents were checked
+5. Recommend next steps for missing information
 
-Always:
-1. Only mention documents that are explicitly listed as missing
-2. Don't make assumptions about other missing documents
-3. Base all information on actual content provided"""
+When answering:
+- If a policy exists but doesn't address the specific question, say: "The [policy name] exists but does not address [specific aspect]"
+- If no relevant policy exists, say: "There is no policy addressing [topic]"
+- If a client form is missing, say: "The [form name] is missing for [client name]"
+- If information is unclear, say: "The policy is unclear about [specific aspect]"
+- Never guess or make assumptions about undocumented procedures"""
 
+        # Add context about found entities
         if search_context['entities']:
             system_prompt += "\n\nRelevant entities in question:"
             for entity_type, values in search_context['entities'].items():
                 if values:
                     system_prompt += f"\n- {entity_type}: {', '.join(values)}"
 
-        if 'visit' in user_question.lower():
-            system_prompt += """
-
-For visit-related queries:
-1. Focus on IMMEDIATE safety risks first
-2. Include environmental and situational risks
-3. Consider family-specific risks if known
-4. Only mention missing documents if they affect visit safety"""
+        # Add special handling for no relevant content
+        if not relevant_content_found:
+            system_prompt += "\n\nNOTE: No directly relevant content was found in available documents. State this clearly in your response."
 
         # Build user prompt
         user_prompt = f"""Question: {user_question}
@@ -502,7 +525,7 @@ Here are relevant sections from documents:
 
 {context_text}
 
-Please provide a {detail_level} response that directly addresses the question asked."""
+Please provide a {detail_level} response that explicitly states when information is missing or unclear."""
 
         # Analyze with GPT-4
         response = openai.ChatCompletion.create(
