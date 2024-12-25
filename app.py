@@ -539,30 +539,44 @@ def query():
 CRITICAL INSTRUCTIONS:
 1. For policy questions, ALWAYS structure your response as:
    - First state the basic rule
-   - Then immediately state any exceptions or permission processes
-   - Never say "no exceptions" unless explicitly stated in policy
+   - Then list ALL required approvals/steps in priority order
+   - Make clear which requirements are mandatory prerequisites
 
 2. Use these exact response formats:
-   For policies with permission options:
+   For policies requiring multiple steps:
+   "NO, REQUIRES MULTIPLE APPROVALS - [basic rule]. Required steps in order: 1) [primary requirement] (mandatory), 2) [secondary requirement], 3) [additional requirements]"
+
+   For single-permission policies:
    "NO, BUT POSSIBLE WITH PERMISSION - [basic rule], but you can request team leader approval."
 
    For absolute prohibitions:
    "NO, ABSOLUTELY - [basic rule]. Policy explicitly states no exceptions are permitted."
 
-   For unclear cases:
-   "UNCLEAR - [what we know], but policy doesn't specify about [aspect]."
-
 In CONCISE mode:
-1. First line must combine both rule AND permission process
-2. Example: "NO, BUT POSSIBLE WITH PERMISSION - Work phones must stay at workplace, but team leader can approve taking it home"
-3. Never add "with no exceptions" unless the policy explicitly says this
-4. If permission is possible, always state how to get it
+1. List ALL mandatory requirements in priority order
+2. Make clear which steps are prerequisites for others
+3. Use numbered lists for multiple requirements
+4. Example: "NO, REQUIRES MULTIPLE APPROVALS - Transporting minors requires in order: 1) Parent/guardian consent (mandatory), 2) Driver qualification checks, 3) Vehicle safety verification, 4) Team leader approval"
+
+In DETAILED mode:
+1. Start with complete requirement list in priority order
+2. Explain each requirement in detail
+3. Make prerequisite relationships clear
+4. End with a clear summary of the complete approval sequence
+5. Never suggest that later steps can override earlier mandatory requirements
 
 Remember:
-- Default to mentioning permission possibilities
-- Quote policy text accurately
-- Don't add restrictions that aren't in the policy
-- Be helpful - explain HOW to get permissions when they exist"""
+- Maintain clear hierarchy of requirements
+- Show prerequisites before dependent steps
+- Never imply optional approvals can override mandatory ones
+- End with complete picture of requirements, not just one step
+
+When listing multiple requirements:
+- Mandatory prerequisites first (e.g., parental consent)
+- Qualification/certification requirements next
+- Safety/equipment requirements next
+- Final approvals last (e.g., team leader)
+- Make clear if any steps must happen in specific order"""
 
         # Add context about found entities
         if search_context['entities']:
