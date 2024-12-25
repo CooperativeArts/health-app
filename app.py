@@ -320,20 +320,38 @@ HTML_TEMPLATE = '''
 <head>
     <title>CARA</title>
     <style>
-        body { max-width: 800px; margin: auto; padding: 20px; font-family: Arial, sans-serif; }
-        #chat-box { height: 400px; border: 1px solid #ccc; overflow-y: scroll; margin: 20px 0; padding: 10px; }
-        .detail-level { margin-bottom: 10px; }
+        body { 
+            max-width: 800px; 
+            margin: auto; 
+            padding: 20px; 
+            font-family: Arial, sans-serif; 
+            font-size: 16px; /* Base font size */
+        }
+        #chat-box { 
+            height: 400px; 
+            border: 1px solid #ccc; 
+            overflow-y: scroll; 
+            margin: 20px 0; 
+            padding: 10px; 
+            font-size: 18px; /* Chat text size */
+        }
+        .detail-level { 
+            margin-bottom: 10px;
+            font-size: 16px; /* Detail level text size */
+        }
         select { 
             padding: 8px;
             margin-left: 10px;
             border-radius: 4px;
             border: 1px solid #ccc;
+            font-size: 16px; /* Dropdown text size */
         }
         input[type="text"] { 
             width: 80%; 
             padding: 10px;
             border: 1px solid #ccc;
             border-radius: 4px;
+            font-size: 16px; /* Input text size */
         }
         button { 
             padding: 10px 20px; 
@@ -341,15 +359,30 @@ HTML_TEMPLATE = '''
             color: white; 
             border: none;
             border-radius: 4px;
-            cursor: pointer; 
+            cursor: pointer;
+            font-size: 16px; /* Button text size */
         }
-        button:disabled { background-color: #ccc; }
-        .loading { color: #666; }
-        .error { color: red; }
+        button:disabled { 
+            background-color: #ccc; 
+        }
+        .loading { 
+            color: #666; 
+        }
+        .error { 
+            color: red; 
+        }
+        /* Add styles for question and answer text */
+        #chat-box b {
+            font-size: 20px; /* Q: and A: size */
+        }
+        #chat-box p {
+            margin: 15px 0;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
-    <h1>Compliance and Risk Assistant</h1>
+    <h1 style="font-size: 24px;">Compliance and Risk Assistant</h1>
     <div class="detail-level">
         <label>Detail Level:</label>
         <select id="detail-level">
@@ -440,8 +473,6 @@ def query():
         # Check for missing documents
         missing_docs = doc_manager.check_missing_documents(all_content)
         
-# Inside query route, replace the context building and prompt sections:
-        
         # Build context text
         context_text = ""
         total_chars = 0
@@ -459,7 +490,6 @@ def query():
             elif item.context == "Operational Guidelines":
                 found_policies.add(item.document_name)
                 
-            # Check if content is relevant to the question
             content_lower = item.content.lower()
             question_terms = set(user_question.lower().split()) - {'what', 'is', 'are', 'the', 'a', 'an', 'in', 'for', 'to', 'of'}
             if any(term in content_lower for term in question_terms):
@@ -504,43 +534,35 @@ def query():
                         context_text += section
                         total_chars += len(section)
 
-        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice based on policy directives.
+        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 
 CRITICAL INSTRUCTIONS:
-1. When a policy contains a clear directive, state both the rule AND any exceptions/permissions
-2. Start responses with the exact policy stance:
-   - "NO, BUT PERMISSION POSSIBLE - [policy] states [prohibition], but allows exceptions with [permission requirements]"
-   - "NO - [policy] states [exact prohibition] with no exceptions"
-   - "YES, WITH PERMISSION - [policy] requires [permission requirements]"
-   - "NO POLICY EXISTS - No directive found regarding [specific topic]"
-   - "UNCLEAR - [policy] mentions [topic] but doesn't provide clear directives"
+1. For policy questions, ALWAYS structure your response as:
+   - First state the basic rule
+   - Then immediately state any exceptions or permission processes
+   - Never say "no exceptions" unless explicitly stated in policy
 
-In CONCISE mode (default):
-1. First point MUST be the complete policy directive including any exceptions
-2. Use exact quotes for policy requirements where available
-3. Max 3 bullet points
-4. Include permission/exception procedures if they exist
-5. If no clear directive exists, state this explicitly
+2. Use these exact response formats:
+   For policies with permission options:
+   "NO, BUT POSSIBLE WITH PERMISSION - [basic rule], but you can request team leader approval."
 
-In DETAILED mode:
-1. Start with the exact policy directive and any exceptions
-2. Quote relevant policy sections
-3. Explain requirements, conditions, and exception procedures
-4. Note any areas needing clarification
-5. Include related policy references
+   For absolute prohibitions:
+   "NO, ABSOLUTELY - [basic rule]. Policy explicitly states no exceptions are permitted."
 
-When answering:
-- For prohibitions with exceptions, state: "NO, BUT PERMISSION POSSIBLE - [policy] prohibits this by default, but [permission process]"
-- For absolute prohibitions, state: "NO - [policy] prohibits this with no exceptions"
-- For permission-required activities, state: "YES, WITH PERMISSION - [permission requirements]"
-- For missing policies, state: "NO POLICY EXISTS covering [specific topic]"
-- For unclear policies, state: "UNCLEAR - [policy] does not provide specific direction about [topic]"
+   For unclear cases:
+   "UNCLEAR - [what we know], but policy doesn't specify about [aspect]."
 
-Never:
-- Omit exception clauses or permission possibilities
-- State prohibitions without mentioning available exceptions
-- Make assumptions about unwritten rules
-- Apply rules from one scenario to another"""
+In CONCISE mode:
+1. First line must combine both rule AND permission process
+2. Example: "NO, BUT POSSIBLE WITH PERMISSION - Work phones must stay at workplace, but team leader can approve taking it home"
+3. Never add "with no exceptions" unless the policy explicitly says this
+4. If permission is possible, always state how to get it
+
+Remember:
+- Default to mentioning permission possibilities
+- Quote policy text accurately
+- Don't add restrictions that aren't in the policy
+- Be helpful - explain HOW to get permissions when they exist"""
 
         # Add context about found entities
         if search_context['entities']:
