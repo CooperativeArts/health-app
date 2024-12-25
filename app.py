@@ -10,6 +10,112 @@ from dataclasses import dataclass
 from pathlib import Path
 import pkg_resources
 
+class DocumentReader:
+    """Factory class to handle different document types"""
+    
+    @staticmethod
+    def create_reader(file_path: Path) -> 'BaseDocumentReader':
+        extension = file_path.suffix.lower()
+        if extension == '.pdf':
+            return PDFReader()
+        elif extension in ['.doc', '.docx']:
+            return WordReader()
+        elif extension in ['.xls', '.xlsx']:
+            return ExcelReader()
+        elif extension == '.html':
+            return HTMLReader()
+        elif extension == '.txt':
+            return TextReader()
+        elif extension in ['.md', '.markdown']:
+            return MarkdownReader()
+        else:
+            raise ValueError(f"Unsupported file type: {extension}")
+
+class BaseDocumentReader:
+    def read(self, file_path: Path) -> List[Tuple[int, str]]:
+        """Return list of (page_number, content) tuples"""
+        raise NotImplementedError
+
+class PDFReader(BaseDocumentReader):
+    def read(self, file_path: Path) -> List[Tuple[int, str]]:
+        from pypdf import PdfReader
+        reader = PdfReader(str(file_path))
+        content = []
+        for page_num, page in enumerate(reader.pages):
+            text = page.extract_text()
+            if text.strip():
+                content.append((page_num + 1, text))
+        return content
+
+class WordReader(BaseDocumentReader):
+    def read(self, file_path: Path) -> List[Tuple[int, str]]:
+        import docx2txt  # for .docx
+        from subprocess import run, PIPE  # for .doc (using antiword)
+        
+        if file_path.suffix.lower() == '.docx':
+            text = docx2txt.process(str(file_path))
+            return [(1, text)] if text.strip() else []
+        else:  # .doc
+            try:
+                result = run(['antiword', str(file_path)], stdout=PIPE, stderr=PIPE)
+                text = result.stdout.decode('utf-8')
+                return [(1, text)] if text.strip() else []
+            except FileNotFoundError:
+                # Fallback to textract if antiword isn't available
+                import textract
+                text = textract.process(str(file_path)).decode('utf-8')
+                return [(1, text)] if text.strip() else []
+
+class ExcelReader(BaseDocumentReader):
+    def read(self, file_path: Path) -> List[Tuple[int, str]]:
+        import pandas as pd
+        
+        content = []
+        try:
+            # Read all sheets
+            xlsx = pd.ExcelFile(str(file_path))
+            for sheet_num, sheet_name in enumerate(xlsx.sheet_names):
+                df = pd.read_excel(xlsx, sheet_name)
+                # Convert dataframe to string representation
+                text = f"Sheet: {sheet_name}\n{df.to_string()}"
+                content.append((sheet_num + 1, text))
+        except Exception as e:
+            print(f"Error reading Excel file {file_path}: {str(e)}")
+        return content
+
+class HTMLReader(BaseDocumentReader):
+    def read(self, file_path: Path) -> List[Tuple[int, str]]:
+        from bs4 import BeautifulSoup
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            soup = BeautifulSoup(f.read(), 'html.parser')
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            # Get text
+            text = soup.get_text(separator='\n')
+            return [(1, text)] if text.strip() else []
+
+class TextReader(BaseDocumentReader):
+    def read(self, file_path: Path) -> List[Tuple[int, str]]:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+            return [(1, text)] if text.strip() else []
+
+class MarkdownReader(BaseDocumentReader):
+    def read(self, file_path: Path) -> List[Tuple[int, str]]:
+        import markdown
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            md_text = f.read()
+            # Convert to HTML first
+            html = markdown.markdown(md_text)
+            # Use BeautifulSoup to extract text
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, 'html.parser')
+            text = soup.get_text(separator='\n')
+            return [(1, text)] if text.strip() else []
+
 app = Flask(__name__)
 
 def check_dependencies():
@@ -155,13 +261,9 @@ class DocumentManager:
             if str(file_path) in self.document_cache:
                 content = self.document_cache[str(file_path)]
             else:
-                from pypdf import PdfReader
-                reader = PdfReader(str(file_path))
-                content = []
-                for page_num, page in enumerate(reader.pages):
-                    text = page.extract_text()
-                    if text.strip():
-                        content.append((page_num + 1, text))
+                # Create appropriate reader for file type
+                reader = DocumentReader.create_reader(file_path)
+                content = reader.read(file_path)
                 self.document_cache[str(file_path)] = content
 
             doc_type = self.get_document_type(file_path)
@@ -460,12 +562,15 @@ def query():
         # Collect relevant content
         all_content = []
         
+        supported_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.html', '.txt', '.md', '.markdown'}
+        
         for folder in folders_to_search:
             folder_path = Path(folder)
             if folder_path.exists():
-                for file_path in folder_path.rglob('*.pdf'):
-                    sections = doc_manager.scan_document(file_path, search_context)
-                    all_content.extend(sections)
+                for file_path in folder_path.rglob('*'):
+                    if file_path.suffix.lower() in supported_extensions:
+                        sections = doc_manager.scan_document(file_path, search_context)
+                        all_content.extend(sections)
         
         # Sort by relevance score
         all_content.sort(key=lambda x: x.relevance_score, reverse=True)
