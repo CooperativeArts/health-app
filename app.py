@@ -413,95 +413,73 @@ def query():
         # Check for missing documents
         missing_docs = doc_manager.check_missing_documents(all_content)
         
+        # Inside query route, replace the context building section:
+        
         # Build context text
         context_text = ""
         total_chars = 0
-        max_chars = 20000 if detail_level == 'detailed' else 2000
+        max_chars = 20000 if detail_level == 'detailed' else 4000  # Increased for concise mode
 
-        # First pass: Look for high-priority risk content
-        risk_content = []
-        missing_critical = []
-        found_risk_assessment = False
+        # First: Handle missing documents regardless of mode
+        missing_list = [f"{details['description']} (mandatory)" if details['mandatory'] else details['description']
+                       for doc_type, details in missing_docs.items() if not details['found']]
+        
+        if missing_list:
+            context_text = "MISSING DOCUMENTS STATUS:\n- " + "\n- ".join(missing_list) + "\n\n"
+            total_chars += len(context_text)
 
-        # Check for risk assessment and critical content first
+        # Second: Add high-priority content (both modes)
         for item in all_content:
             content_lower = item.content.lower()
-            if any(term in content_lower for term in ['risk assessment', 'safety assessment']):
-                found_risk_assessment = True
-                risk_content.append(item)
-            elif any(term in content_lower for term in ['risk', 'safety', 'hazard']) and item.relevance_score > 1.5:
-                risk_content.append(item)
-
-        # Build context starting with risk content
-        for item in risk_content:
-            section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
-            section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
-            section += f"{item.content}\n"
+            is_high_priority = (
+                'missing' in user_question.lower() or
+                'document' in user_question.lower() or
+                any(term in content_lower for term in ['risk assessment', 'safety assessment']) or
+                (any(term in content_lower for term in ['risk', 'safety', 'hazard']) and 
+                 item.relevance_score > 1.5)
+            )
             
-            if total_chars + len(section) <= max_chars:
-                context_text += section
-                total_chars += len(section)
+            if is_high_priority:
+                section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
+                section += f"{item.content}\n"
+                
+                if total_chars + len(section) <= max_chars:
+                    context_text += section
+                    total_chars += len(section)
 
-        # Add remaining relevant content if space allows and in detailed mode
+        # Third: Add remaining content (detailed mode only)
         if detail_level == 'detailed' and total_chars < max_chars:
             for item in all_content:
-                if item not in risk_content:
+                content_lower = item.content.lower()
+                if not any(term in content_lower for term in ['risk assessment', 'safety assessment', 'risk', 'safety', 'hazard']):
                     section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
-                    section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
                     section += f"{item.content}\n"
                     
                     if total_chars + len(section) <= max_chars:
                         context_text += section
                         total_chars += len(section)
-                    else:
-                        break
-
-        # Handle missing documents based on mode
-        missing_docs_relevant = any(kw in user_question.lower() for kw in ['document', 'form', 'missing', 'required'])
-        if detail_level == 'detailed' or not found_risk_assessment or missing_docs_relevant:
-            missing_list = []
-            for doc_type, details in missing_docs.items():
-                if not details['found']:
-                    if doc_type == 'risk_assessment' or (detail_level == 'detailed' and details['mandatory']):
-                        prefix = "⚠️ " if doc_type == 'risk_assessment' else ""
-                        missing_list.append(f"{prefix}{details['description']} (mandatory)" if details['mandatory'] 
-                                         else f"{prefix}{details['description']}")
-            
-            if missing_list:
-                prefix_text = "\nMISSING CRITICAL DOCUMENTS:\n- " if not found_risk_assessment else "\nOTHER MISSING DOCUMENTS:\n- "
-                missing_context = prefix_text + "\n- ".join(missing_list) + "\n\n"
-                if detail_level == 'detailed':
-                    context_text = missing_context + context_text
-                else:
-                    # In concise mode, only add missing docs at start if risk assessment is missing
-                    if not found_risk_assessment:
-                        context_text = missing_context + context_text
 
         system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
-Focus on answering the specific question asked while considering the document context.
+
+IMPORTANT: Base your response ONLY on the actual document content provided. Do not make assumptions about missing documents unless they are explicitly listed in the MISSING DOCUMENTS STATUS section.
 
 In CONCISE mode (default):
-1. Start with actual risks found in documents (especially risk assessments)
-2. Give only the most crucial information in bullet points
-3. Keep it to 4-5 bullet points maximum
-4. Each point should be one line
-5. Only mention missing documents if the risk assessment is missing or if directly relevant to safety
+1. List ONLY the actually missing documents from the MISSING DOCUMENTS STATUS section
+2. Keep to 3-4 bullet points maximum
+3. Each point should focus on one missing document
+4. Don't speculate about documents that aren't mentioned
 
 In DETAILED mode:
-1. Start with comprehensive risk analysis from documents
-2. Include relevant quotes from risk assessments and safety documents
-3. List ALL missing required documents with explanations
-4. Note any gaps or inconsistencies
-5. Recommend next steps
+1. List all missing documents with explanations
+2. Provide context from available documents
+3. Note document locations and references
+4. Recommend next steps for document completion
 
-Always prioritize in this order:
-1. Actual documented risks and safety concerns
-2. Critical missing safety documents (especially risk assessments)
-3. Compliance with procedures
-4. Other relevant safety information
-5. Missing documentation (detailed mode only unless critical)"""
+Always:
+1. Only mention documents that are explicitly listed as missing
+2. Don't make assumptions about other missing documents
+3. Base all information on actual content provided"""
 
-        # Add context about found entities
         if search_context['entities']:
             system_prompt += "\n\nRelevant entities in question:"
             for entity_type, values in search_context['entities'].items():
