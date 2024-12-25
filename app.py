@@ -201,27 +201,62 @@ class DocumentManager:
                            entities: Dict[str, List[str]], 
                            search_entities: Dict[str, List[str]],
                            doc_type: str) -> float:
-        score = 0.0
-        
-        # Term matching
-        term_matches = sum(term.lower() in text.lower() for term in search_terms)
-        score += term_matches * 1.0
-        
-        # Entity matching (weighted higher)
-        for entity_type, search_names in search_entities.items():
-            for name in search_names:
-                if name.lower() in text.lower():
-                    score += 2.0  # Weight entity matches higher
-                    # Additional boost for case files when matching names
-                    if doc_type == "Case Files":
-                        score += 1.0
-        
-        # Context boost for operational documents when searching for procedures
-        if doc_type in ["Operational Guidelines", "Forms"] and \
-           any(term in ['procedure', 'form', 'guide', 'visit'] for term in search_terms):
+    score = 0.0
+    text_lower = text.lower()
+    
+    # Term matching with weighted importance
+    term_weights = {
+        'risk': 3.0,
+        'safety': 3.0,
+        'hazard': 3.0,
+        'danger': 3.0,
+        'assessment': 2.5,
+        'visit': 2.0,
+        'procedure': 1.5,
+        'policy': 1.0,
+        'form': 0.5
+    }
+    
+    # Calculate term score with weights
+    for term in search_terms:
+        term_lower = term.lower()
+        if term_lower in text_lower:
+            weight = term_weights.get(term_lower, 1.0)
+            score += weight
+            
+            # Extra boost for risk-related content near entity mentions
+            if term_lower in ['risk', 'safety', 'hazard'] and search_entities:
+                for entity_values in search_entities.values():
+                    for entity in entity_values:
+                        if entity.lower() in text_lower:
+                            score += 2.0  # Significant boost for risk content about specific entities
+    
+    # Entity matching (weighted higher)
+    for entity_type, search_names in search_entities.items():
+        for name in search_names:
+            if name.lower() in text_lower:
+                score += 2.0  # Weight entity matches higher
+                # Additional boost for case files when matching names
+                if doc_type == "Case Files":
+                    score += 1.5
+                    
+                # Extra boost for risk assessments with entity matches
+                if any(kw in text_lower for kw in ['risk', 'safety', 'hazard', 'assessment']):
+                    score += 2.0
+    
+    # Context-based boosts
+    if doc_type == "Forms":
+        if any(kw in text_lower for kw in ['risk assessment', 'safety assessment']):
+            score += 3.0  # High boost for risk assessment forms
+        elif 'visit' in text_lower:
+            score += 1.5
+    elif doc_type == "Operational Guidelines":
+        if any(kw in text_lower for kw in ['risk', 'safety', 'hazard']):
+            score += 2.0
+        elif 'visit' in text_lower:
             score += 1.5
             
-        return score
+    return score
 
 class QueryProcessor:
     def __init__(self):
@@ -380,11 +415,37 @@ def query():
         
         # Build context text
         context_text = ""
-        total_chars = 0
-        max_chars = 20000 if detail_level == 'detailed' else 2000
-        
-        # Add document content to context first (prioritize actual content)
-        for item in all_content:
+total_chars = 0
+max_chars = 20000 if detail_level == 'detailed' else 2000
+
+# First pass: Look for high-priority risk content
+risk_content = []
+missing_critical = []
+found_risk_assessment = False
+
+# Check for risk assessment and critical content first
+for item in all_content:
+    content_lower = item.content.lower()
+    if any(term in content_lower for term in ['risk assessment', 'safety assessment']):
+        found_risk_assessment = True
+        risk_content.append(item)
+    elif any(term in content_lower for term in ['risk', 'safety', 'hazard']) and item.relevance_score > 1.5:
+        risk_content.append(item)
+
+# Build context starting with risk content
+for item in risk_content:
+    section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
+    section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
+    section += f"{item.content}\n"
+    
+    if total_chars + len(section) <= max_chars:
+        context_text += section
+        total_chars += len(section)
+
+# Add remaining relevant content if space allows and in detailed mode
+if detail_level == 'detailed' and total_chars < max_chars:
+    for item in all_content:
+        if item not in risk_content:
             section = f"\n=== From {item.context}: {item.document_name}, Page {item.page} ===\n"
             section += f"[Entities found: {', '.join([f'{k}: {v}' for k, v in item.entities.items() if v])}]\n"
             section += f"{item.content}\n"
@@ -395,48 +456,66 @@ def query():
             else:
                 break
 
-        # Only add missing documents info if it's directly relevant to the question
-        # or if we found no other relevant content
-        if not context_text.strip() or any(kw in user_question.lower() for kw in ['document', 'form', 'missing', 'required']):
-            missing_list = [f"{details['description']} (mandatory)" if details['mandatory'] else details['description']
-                          for doc_type, details in missing_docs.items() if not details['found']]
-            if missing_list:
-                context_text = "MISSING REQUIRED DOCUMENTS:\n- " + "\n- ".join(missing_list) + "\n\n" + context_text
+# Handle missing documents based on mode
+missing_docs_relevant = any(kw in user_question.lower() for kw in ['document', 'form', 'missing', 'required'])
+if detail_level == 'detailed' or not found_risk_assessment or missing_docs_relevant:
+    missing_list = []
+    for doc_type, details in missing_docs.items():
+        if not details['found']:
+            if doc_type == 'risk_assessment' or (detail_level == 'detailed' and details['mandatory']):
+                prefix = "⚠️ " if doc_type == 'risk_assessment' else ""
+                missing_list.append(f"{prefix}{details['description']} (mandatory)" if details['mandatory'] 
+                                 else f"{prefix}{details['description']}")
+    
+    if missing_list:
+        prefix_text = "\nMISSING CRITICAL DOCUMENTS:\n- " if not found_risk_assessment else "\nOTHER MISSING DOCUMENTS:\n- "
+        missing_context = prefix_text + "\n- ".join(missing_list) + "\n\n"
+        if detail_level == 'detailed':
+            context_text = missing_context + context_text
+        else:
+            # In concise mode, only add missing docs at start if risk assessment is missing
+            if not found_risk_assessment:
+                context_text = missing_context + context_text
 
-        if not context_text.strip():
-            return ("I couldn't find relevant information in the documents. "
-                   "Please try rephrasing your question or providing more context.")
-
-        system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
+system_prompt = """You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 Focus on answering the specific question asked while considering the document context.
 
 In CONCISE mode (default):
-1. Answer the specific question asked
-2. Only mention missing documents if they directly impact the answer to the question
-3. Give only the most crucial information in bullet points
-4. Keep it to 4-5 bullet points maximum
-5. Each point should be one line
+1. Start with actual risks found in documents (especially risk assessments)
+2. Give only the most crucial information in bullet points
+3. Keep it to 4-5 bullet points maximum
+4. Each point should be one line
+5. Only mention missing documents if the risk assessment is missing or if directly relevant to safety
 
 In DETAILED mode:
-1. Provide comprehensive analysis focused on the question
-2. Include relevant quotes from documents
-3. Note any gaps or inconsistencies
-4. Recommend next steps
-5. Include missing document information only if relevant to the question
+1. Start with comprehensive risk analysis from documents
+2. Include relevant quotes from risk assessments and safety documents
+3. List ALL missing required documents with explanations
+4. Note any gaps or inconsistencies
+5. Recommend next steps
 
-Always prioritize:
-1. Direct answers to the specific question
-2. Safety requirements
+Always prioritize in this order:
+1. Actual documented risks and safety concerns
+2. Critical missing safety documents (especially risk assessments)
 3. Compliance with procedures
-4. Family-specific information
-5. Only mention missing documents if relevant to the current query"""
+4. Other relevant safety information
+5. Missing documentation (detailed mode only unless critical)"""
 
-        # Add context about found entities
-        if search_context['entities']:
-            system_prompt += "\n\nRelevant entities in question:"
-            for entity_type, values in search_context['entities'].items():
-                if values:
-                    system_prompt += f"\n- {entity_type}: {', '.join(values)}"
+# Add context about found entities
+if search_context['entities']:
+    system_prompt += "\n\nRelevant entities in question:"
+    for entity_type, values in search_context['entities'].items():
+        if values:
+            system_prompt += f"\n- {entity_type}: {', '.join(values)}"
+
+if 'visit' in user_question.lower():
+    system_prompt += """
+
+For visit-related queries:
+1. Focus on IMMEDIATE safety risks first
+2. Include environmental and situational risks
+3. Consider family-specific risks if known
+4. Only mention missing documents if they affect visit safety"""
 
         # Build user prompt
         user_prompt = f"""Question: {user_question}
