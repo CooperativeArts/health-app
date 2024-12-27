@@ -657,15 +657,17 @@ CRITICAL INSTRUCTIONS:
    For complex multi-step requirements:
    "NO, REQUIRES MULTIPLE APPROVALS - [basic rule]. Required steps in order: 1) [primary requirement] (mandatory), 2) [secondary requirement], 3) [additional requirements]"
 
-   For absolute prohibitions (ONLY if explicitly stated):
+   For absolute prohibitions:
    "NO, ABSOLUTELY - [basic rule]. Policy explicitly states no exceptions are permitted."
 
-In CONCISE mode:
-1. For single approvals:
-   Example: "NO, BUT POSSIBLE WITH PERMISSION - Work phones must stay at workplace, but team leader can approve taking it home"
+   For no information available:
+   "NO POLICY FOUND - No policy or guideline addressing [specific topic] was found in available documents. Please refer to [relevant document name] for guidance."
 
-2. For multiple requirements:
-   Example: "NO, REQUIRES MULTIPLE APPROVALS - Transporting minors requires in order: 1) Parent/guardian consent (mandatory), 2) Driver qualification checks, 3) Vehicle safety verification, 4) Team leader approval"
+In CONCISE mode:
+1. Start with exact policy stance - YES/NO/NO POLICY FOUND
+2. Quote the relevant policy rule if one exists
+3. Max 3-4 bullet points
+4. If no policy exists, say so explicitly and name the document that should contain this information
 
 In DETAILED mode:
 1. Start with complete requirement list
@@ -680,11 +682,13 @@ Remember:
 - For simple permissions, use straightforward approval format
 - For complex requirements, use numbered priority list
 - Never imply optional approvals can override mandatory ones
+- When no policy exists, explicitly state which document should contain this information
 
 Key Distinctions:
 - Simple permission = "BUT POSSIBLE WITH PERMISSION"
 - Multiple steps = "REQUIRES MULTIPLE APPROVALS"
-- No exceptions allowed = "ABSOLUTELY" (only if explicitly stated)
+- No exceptions = "ABSOLUTELY"
+- No policy found = "NO POLICY FOUND - [document needed]"
 
 When listing multiple requirements:
 - Mandatory prerequisites first (e.g., parental consent)
