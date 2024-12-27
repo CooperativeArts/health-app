@@ -312,25 +312,25 @@ class DocumentManager:
         
         # Term matching with weighted importance
         term_weights = {
-            # Device and security terms
+            # Permission terms (highest priority)
+            'permission': 4.0,
+            'approval': 4.0,
+            'authorize': 4.0,
+            'request': 4.0,
+            'exception': 4.0,
+            # Device terms
             'mobile': 3.0,
             'phone': 3.0,
             'device': 3.0,
-            'security': 2.5,
-            # Risk terms
-            'risk': 2.5,
-            'safety': 2.5,
-            'hazard': 2.5,
-            # Policy terms
-            'policy': 2.0,
-            'procedure': 2.0,
-            'requirement': 2.0,
-            'permission': 2.0,
-            # Directive terms
-            'must': 2.5,
-            'required': 2.5,
-            'prohibited': 2.5,
-            'allowed': 2.0,
+            # Rule terms
+            'must': 3.0,
+            'required': 3.0,
+            'prohibited': 3.0,
+            'policy': 3.0,
+            # Transaction terms
+            'expense': 3.0,
+            'payment': 3.0,
+            'purchase': 3.0,
             # General terms
             'form': 0.5
         }
@@ -342,30 +342,29 @@ class DocumentManager:
                 weight = term_weights.get(term_lower, 1.0)
                 score += weight
                 
-                # Boost for clear directives
-                directive_words = ['must', 'shall', 'required', 'prohibited', 'not allowed', 'never']
-                if any(directive in text_lower.split() for directive in directive_words):
-                    score += weight * 1.5  # 50% boost for directive statements
+                # Extra boost for permission-related content
+                permission_words = ['permission', 'approval', 'authorize', 'request', 'exception']
+                if any(word in text_lower for word in permission_words):
+                    score += weight * 2.0  # Double score for permission content
                 
-                # Extra boost for permission requirements
-                if term_lower in ['permission', 'approval'] and 'required' in text_lower:
-                    score += 2.0
+                # Boost for clear directives near permission terms
+                if any(word in text_lower for word in ['must', 'shall', 'required']) and \
+                   any(word in text_lower for word in permission_words):
+                    score += weight * 1.5
         
-        # Context-based boosts
+        # Context-based boosts for permission content
+        if 'permission' in text_lower or 'approval' in text_lower:
+            nearby_terms = ['team leader', 'supervisor', 'manager', 'request']
+            if any(term in text_lower for term in nearby_terms):
+                score += 3.0  # High boost for permission process details
+        
+        # Policy document boosts
         if doc_type == "Operational Guidelines":
             if 'policy' in text_lower:
-                score *= 1.5  # 50% boost for policy documents
-                # Extra boost for relevant policy sections
+                score *= 1.5
                 if any(kw in text_lower for kw in ['requirement:', 'policy:', 'rules:', 'procedures:']):
                     score *= 1.25
-            
-            # Extra boost for exact policy matches
-            file_name_lower = str(self.base_path / doc_type).lower()
-            if 'mobile' in file_name_lower and any(term in ['mobile', 'phone', 'device'] for term in search_terms):
-                score += 3.0
-            elif 'security' in file_name_lower and 'security' in search_terms:
-                score += 3.0
-                
+                    
         return score
 
 class QueryProcessor:
@@ -645,29 +644,31 @@ def query():
         system_prompt = '''You are a Compliance and Risk Assistant. Your role is to analyze documents and provide clear, actionable advice.
 
 CRITICAL INSTRUCTIONS:
-1. For policy questions, ALWAYS check for:
-   - Basic rules
-   - Any possible exceptions or permissions
-   - Whether single approval or multiple steps are needed
+1. For policy questions, ALWAYS:
+   - Check basic rules AND any exceptions
+   - Look for permission processes
+   - Never state "no exceptions" unless explicitly confirmed in policy
+   - Assume permissions might exist unless explicitly prohibited
 
 2. Use these exact response formats:
-   For simple permission cases:
+   For policies with any permissions possible:
    "NO, BUT POSSIBLE WITH PERMISSION - [basic rule], but you can request team leader approval."
 
-   For complex multi-step requirements:
+   For multiple requirements:
    "NO, REQUIRES MULTIPLE APPROVALS - [basic rule]. Required steps in order: 1) [primary requirement] (mandatory), 2) [secondary requirement], 3) [additional requirements]"
 
-   For absolute prohibitions:
+   For absolute prohibitions (ONLY if explicitly stated):
    "NO, ABSOLUTELY - [basic rule]. Policy explicitly states no exceptions are permitted."
 
    For no information available:
-   "NO POLICY FOUND - No policy or guideline addressing [specific topic] was found in available documents. Please refer to [relevant document name] for guidance."
+   "NO POLICY FOUND - No policy addressing [specific topic] was found in available documents. Refer to [relevant document name] for guidance."
 
 In CONCISE mode:
-1. Start with exact policy stance - YES/NO/NO POLICY FOUND
-2. Quote the relevant policy rule if one exists
-3. Max 3-4 bullet points
-4. If no policy exists, say so explicitly and name the document that should contain this information
+1. Always check for exceptions before stating absolutes
+2. Default to mentioning permission possibilities
+3. Keep to 3-4 bullet points maximum
+4. If permission process exists, always state it
+5. Only say "no exceptions" if policy explicitly states this
 
 In DETAILED mode:
 1. Start with complete requirement list
@@ -677,25 +678,23 @@ In DETAILED mode:
 5. Never suggest that later steps can override earlier mandatory ones
 
 Remember:
-- Default to checking for exceptions/permissions
-- Only use "NO, ABSOLUTELY" when policy explicitly states no exceptions
-- For simple permissions, use straightforward approval format
-- For complex requirements, use numbered priority list
-- Never imply optional approvals can override mandatory ones
-- When no policy exists, explicitly state which document should contain this information
+- ALWAYS look for and mention permission processes
+- NEVER say "no exceptions" without explicit policy statement
+- When no clear prohibition exists, mention possible permissions
+- Use exact policy quotes when available
+- Default to permission-possible unless explicitly prohibited
 
 Key Distinctions:
 - Simple permission = "BUT POSSIBLE WITH PERMISSION"
 - Multiple steps = "REQUIRES MULTIPLE APPROVALS"
-- No exceptions = "ABSOLUTELY"
-- No policy found = "NO POLICY FOUND - [document needed]"
+- No exceptions = "ABSOLUTELY" (only with explicit proof)
+- No policy found = "NO POLICY FOUND"
 
 When listing multiple requirements:
-- Mandatory prerequisites first (e.g., parental consent)
-- Qualification/certification requirements next
-- Safety/equipment requirements next
-- Final approvals last (e.g., team leader)
-- Make clear if any steps must happen in specific order'''
+- Mandatory prerequisites first
+- Permission processes second
+- Additional requirements last
+- Make approval sequence clear'''
 
         # Add context about found entities
         if search_context['entities']:
