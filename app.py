@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import json
 from collections import defaultdict
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 import pkg_resources
@@ -119,7 +119,11 @@ class MarkdownReader(BaseDocumentReader):
 app = Flask(__name__)
 
 def check_dependencies():
-    required_packages = ['flask', 'openai', 'python-dotenv', 'pypdf']
+    required_packages = [
+        'flask', 'openai', 'python-dotenv', 'pypdf',
+        'docx2txt', 'pandas', 'openpyxl', 'beautifulsoup4',
+        'markdown', 'textract'
+    ]
     installed = {pkg.key for pkg in pkg_resources.working_set}
     missing = [pkg for pkg in required_packages if pkg not in installed]
     if missing:
@@ -563,7 +567,6 @@ def query():
         all_content = []
         
         supported_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.html', '.txt', '.md', '.markdown'}
-        
         for folder in folders_to_search:
             folder_path = Path(folder)
             if folder_path.exists():

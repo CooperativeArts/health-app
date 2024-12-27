@@ -4,3 +4,9 @@ Werkzeug==2.0.1
 pypdf
 openai==0.28.1
 python-dotenv==1.0.0
+docx2txt
+pandas
+openpyxl
+beautifulsoup4
+markdown
+textract==1.6.3
