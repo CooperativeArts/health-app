@@ -8,7 +8,11 @@ from langchain.chains import RetrievalQA
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+with open('config.txt') as f:
+    for line in f:
+        if '=' in line:
+            key, value = line.strip().split('=', 1)
+            os.environ[key] = value
 
 app = Flask(__name__)
 llm = ChatOpenAI()
